@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# jarvis-peer — dispositivos (peers) da VPN WireGuard.
+#   sudo jarvis-peer add NOME   cria chaves, registra no servidor e mostra o QR code
+#   sudo jarvis-peer list       lista dispositivos, IPs e último contato
+# A config de cada cliente fica em /etc/wireguard/clients/NOME.conf (contém chave privada).
+set -euo pipefail
+
+# shellcheck source=provision/vars.sh
+source "${JARVIS_VARS:-/etc/jarvis/vars.sh}"
+WG_DIR=${WG_DIR:-/etc/wireguard}
+APPLY=${APPLY:-1}
+CONF="$WG_DIR/$WG_IF.conf"
+
+die() { echo "jarvis-peer: $*" >&2; exit 1; }
+
+[[ $EUID -eq 0 || $APPLY == 0 ]] || die "rode com sudo"
+[[ -f $CONF ]] || die "não encontrado: $CONF (rode provision/20-wireguard.sh)"
+
+next_host() {
+  local max=1 n
+  while read -r n; do
+    if ((n > max)); then max=$n; fi
+  done < <(sed -nE "s|^AllowedIPs = ${WG_NET//./\\.}\.([0-9]+)/32$|\1|p" "$CONF")
+  ((max < 254)) || die "não há mais endereços livres em $WG_NET.0/24"
+  echo $((max + 1))
+}
+
+cmd_add() {
+  local name=${1:-} addr priv pub psk server_pub endpoint client
+  [[ $name =~ ^[a-z]([a-z0-9-]{0,29}[a-z0-9])$ ]] ||
+    die "nome inválido: use letras minúsculas, números e hífen (ex.: celular, notebook)"
+  if grep -qx "# peer: $name" "$CONF"; then die "já existe um dispositivo chamado $name"; fi
+
+  addr="$WG_NET.$(next_host)"
+  priv=$(wg genkey)
+  pub=$(wg pubkey <<<"$priv")
+  psk=$(wg genpsk)
+  server_pub=$(wg pubkey <"$WG_DIR/server.key")
+  endpoint=${WG_ENDPOINT:-$(ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}')}
+  [[ -n $endpoint ]] || die "não consegui descobrir o IP público; defina WG_ENDPOINT em vars.sh"
+
+  printf '\n# peer: %s\n[Peer]\nPublicKey = %s\nPresharedKey = %s\nAllowedIPs = %s/32\n' \
+    "$name" "$pub" "$psk" "$addr" >>"$CONF"
+
+  install -d -m 700 "$WG_DIR/clients"
+  client="$WG_DIR/clients/$name.conf"
+  (
+    umask 077
+    cat >"$client" <<EOF
+[Interface]
+PrivateKey = $priv
+Address = $addr/32
+DNS = $WG_SERVER_IP
+
+[Peer]
+PublicKey = $server_pub
+PresharedKey = $psk
+Endpoint = $endpoint:$WG_PORT
+AllowedIPs = $WG_NET.0/24
+PersistentKeepalive = 25
+EOF
+  )
+
+  if [[ $APPLY == 1 ]]; then
+    wg syncconf "$WG_IF" <(wg-quick strip "$WG_IF")
+  fi
+  echo "dispositivo $name -> $addr"
+  echo "config do cliente: $client"
+  if command -v qrencode >/dev/null; then
+    qrencode -t ansiutf8 <"$client"
+  fi
+}
+
+cmd_list() {
+  local line name="" pub="" addr t when
+  declare -A seen=()
+  if [[ $APPLY == 1 ]]; then
+    while read -r pub t; do seen[$pub]=$t; done < <(wg show "$WG_IF" latest-handshakes 2>/dev/null || true)
+  fi
+  printf '  %-14s %-12s %s\n' DISPOSITIVO IP "ÚLTIMO CONTATO"
+  while IFS= read -r line; do
+    case $line in
+      "# peer: "*) name=${line#"# peer: "} ;;
+      "PublicKey = "*) pub=${line#"PublicKey = "} ;;
+      "AllowedIPs = "*)
+        addr=${line#"AllowedIPs = "}
+        t=${seen[$pub]:-0}
+        if [[ $t == 0 ]]; then when=nunca; else when=$(date -d "@$t" '+%F %T'); fi
+        printf '  %-14s %-12s %s\n' "$name" "${addr%/32}" "$when"
+        ;;
+    esac
+  done <"$CONF"
+}
+
+case ${1:-} in
+  add) cmd_add "${2:-}" ;;
+  list) cmd_list ;;
+  *) die "uso: jarvis-peer add NOME | jarvis-peer list" ;;
+esac
