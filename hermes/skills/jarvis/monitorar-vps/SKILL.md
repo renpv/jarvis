@@ -27,7 +27,7 @@ app/serviço parecer fora do ar. Também no resumo matinal (só a linha de alert
 | Carga | `uptime` |
 | Containers (rootless) | `docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'` |
 | Apps publicados | `ls /etc/caddy/apps.d/` |
-| Atualizações pendentes | `apt list --upgradable 2>/dev/null \| tail -n +2 \| wc -l` |
+| Atualizações pendentes | `apt list --upgradable` (conte as linhas) |
 
 ## Procedimento
 1. Rode os comandos relevantes à pergunta (não todos, se a pergunta for específica).
