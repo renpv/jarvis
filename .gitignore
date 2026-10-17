@@ -10,3 +10,6 @@ client_secret*.json
 # Estado e backups
 *.tar.zst
 backups/
+
+# Espaço de trabalho do executor do plano
+.superpowers/
