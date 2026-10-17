@@ -113,5 +113,5 @@ sudo systemctl restart hermes-gateway hermes-dashboard
 | Aba Chat do dashboard não conecta | Abra o console do navegador (F12). Se houver erro de WebSocket/Origin, acrescente `header_up Origin http://127.0.0.1:9119` no `reverse_proxy` de `system/caddy/Caddyfile.tpl`, faça push e rode `sudo provision/30-dns-caddy.sh`. |
 | `jarvis apply` recusou | `jarvis diff`, depois `jarvis import` (manter) ou `jarvis apply --force` (descartar). |
 | `jarvis import` abortou com "segredo" | Algum arquivo do Hermes ganhou um token. Tire-o do arquivo (ele vai no `.env`) e rode de novo. |
-| App publicado não abre | `jarvis hermes` não ajuda aqui; veja `ls /etc/caddy/apps.d/` e peça ao Jarvis para rodar a skill `monitorar-vps`. |
+| App publicado não abre | `ls /etc/caddy/apps.d/` mostra o app? A VPN está ligada? Peça ao Jarvis um diagnóstico (skill `monitorar-vps`). |
 | Trancado fora do SSH | Use o console web do provedor e entre como `renpv` com a senha. Confira `/etc/ssh/sshd_config.d/00-jarvis.conf`. |
