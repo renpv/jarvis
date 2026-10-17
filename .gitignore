@@ -1,0 +1,12 @@
+# Segredos — nunca versionar
+.env
+*.env
+!.env.example
+*.key
+*.pem
+wg-*.conf
+client_secret*.json
+
+# Estado e backups
+*.tar.zst
+backups/
