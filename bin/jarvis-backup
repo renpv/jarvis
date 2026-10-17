@@ -37,7 +37,15 @@ for d in .hermes apps notas; do
 done
 ((${#items[@]})) || { echo "jarvis-backup: nada para copiar em $SRC_DIR" >&2; exit 1; }
 
-tar -C "$SRC_DIR" --exclude='.hermes/logs' -I 'zstd -q -T0 -10' -cf "$out.tmp" "${items[@]}"
+# rc 1 = "arquivo mudou durante a leitura" (um app rodando gravou algo): o backup segue válido.
+rc=0
+tar -C "$SRC_DIR" --exclude='.hermes/logs' --warning=no-file-changed -I 'zstd -q -T0 -10' \
+  -cf "$out.tmp" "${items[@]}" || rc=$?
+if ((rc > 1)); then
+  rm -f "$out.tmp"
+  echo "jarvis-backup: tar falhou (código $rc)" >&2
+  exit "$rc"
+fi
 mv "$out.tmp" "$out"
 chgrp "$BACKUP_GROUP" "$out"
 chmod 640 "$out"

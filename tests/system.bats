@@ -76,3 +76,12 @@ caddy_validate() {
   run caddy_validate
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
+
+@test "API admin do Caddy fica num socket só do usuário caddy (não em localhost)" {
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT
+  [[ "$output" == *"admin unix//run/caddy/admin.sock"* ]]
+  [[ "$output" != *"localhost:2019"* ]]
+  run render "$REPO_ROOT/system/systemd/caddy-override.conf.tpl" WG_IF
+  [[ "$output" == *"RuntimeDirectory=caddy"* ]]
+  [[ "$output" == *"RuntimeDirectoryMode=0700"* ]]
+}

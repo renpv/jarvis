@@ -30,8 +30,13 @@ require_root() {
   [[ $EUID -eq 0 ]] || die "rode com sudo: sudo $0"
 }
 
+# apt_get — apt-get que espera o lock do dpkg (numa VPS nova o unattended-upgrades costuma segurá-lo).
+apt_get() {
+  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 "$@"
+}
+
 apt_install() {
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -q "$@"
+  apt_get install -y -q "$@"
 }
 
 # render MODELO VAR... — imprime o modelo trocando cada @VAR@ pelo valor da variável.

@@ -70,3 +70,12 @@ setup() {
   run bash -c "HERMES_USER=outro; source '$REPO_ROOT/provision/vars.sh'; echo \$HERMES_USER \$WG_SERVER_IP"
   [ "$output" = "outro 10.8.0.1" ]
 }
+
+@test "apt_install espera o lock do dpkg (VPS recém-criada roda unattended-upgrades)" {
+  mkdir -p "$SANDBOX/bin"
+  printf '#!/usr/bin/env bash\necho "$@" > "%s/apt-args"\n' "$SANDBOX" > "$SANDBOX/bin/apt-get"
+  chmod +x "$SANDBOX/bin/apt-get"
+  PATH="$SANDBOX/bin:$PATH" apt_install pacote
+  grep -q 'DPkg::Lock::Timeout=' "$SANDBOX/apt-args"
+  grep -q 'pacote' "$SANDBOX/apt-args"
+}

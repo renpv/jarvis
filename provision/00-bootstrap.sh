@@ -5,15 +5,15 @@
 #   3. cria a chave SSH do admin para o GitHub e clona o repo em /opt/jarvis
 # Uso (do seu computador):
 #   scp -r provision root@IP_DA_VPS:/root/
-#   ssh root@IP_DA_VPS 'bash /root/provision/00-bootstrap.sh'
+#   ssh -t root@IP_DA_VPS 'bash /root/provision/00-bootstrap.sh'   # -t: o script pede senha e Enter
 set -euo pipefail
 # shellcheck source=provision/lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 require_root
 
 log "atualizando o sistema (pode demorar alguns minutos)"
-apt-get update -q
-DEBIAN_FRONTEND=noninteractive apt-get -y -q full-upgrade
+apt_get update -q
+apt_get -y -q full-upgrade
 apt_install git curl ca-certificates
 
 if id "$ADMIN_USER" &>/dev/null; then

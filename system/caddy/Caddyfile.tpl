@@ -3,7 +3,9 @@
 {
 	default_bind @WG_SERVER_IP@
 	auto_https off
-	admin localhost:2019
+	# API de administração num socket que só o usuário caddy acessa (não em localhost,
+	# onde qualquer usuário local — inclusive o hermes — poderia reconfigurar o Caddy).
+	admin unix//run/caddy/admin.sock
 }
 
 http://hermes.@DOMAIN@ {

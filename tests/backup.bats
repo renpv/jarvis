@@ -67,3 +67,19 @@ EOF
   [ "$status" -ne 0 ]
   grep -qx "start hermes-gateway hermes-dashboard" "$SANDBOX/ctl.log"
 }
+
+@test "aceita 'arquivo mudou durante a leitura' (tar sai com 1) de um app rodando" {
+  mkdir -p "$SANDBOX/fakebin"
+  cat > "$SANDBOX/fakebin/tar" <<'EOT'
+#!/usr/bin/env bash
+# finge o tar: cria o arquivo de saída e sai com 1 (file changed as we read it)
+while [[ $# -gt 0 ]]; do if [[ $1 == -cf ]]; then : > "$2"; fi; shift; done
+echo "tar: apps/db: file changed as we read it" >&2
+exit 1
+EOT
+  chmod +x "$SANDBOX/fakebin/tar"
+  export PATH="$SANDBOX/fakebin:$PATH" JARVIS_DATE=2026-10-17
+  run "$BACKUP"
+  [ "$status" -eq 0 ]
+  [ -f "$SANDBOX/bk/jarvis-daily-2026-10-17.tar.zst" ]
+}

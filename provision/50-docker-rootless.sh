@@ -15,7 +15,7 @@ if ! command -v dockerd-rootless-setuptool.sh >/dev/null; then
   codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" \
     >/etc/apt/sources.list.d/docker.list
-  apt-get update -q
+  apt_get update -q
   apt_install docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras docker-compose-plugin uidmap
 fi
 # Sem o Docker de root: só o rootless do hermes.

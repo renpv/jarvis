@@ -19,5 +19,7 @@ systemctl start jarvis-backup.service
 # shellcheck disable=SC2012  # nomes gerados pelo jarvis-backup
 latest=$(ls -1t /var/backups/jarvis/*.tar.zst | head -1)
 [[ -n $latest ]] || die "nenhum backup gerado"
-tar -I zstd -tf "$latest" | grep -q '^\.hermes/' || die "backup sem .hermes/"
+# grep lendo de <(...) e não de um pipe: com pipefail, o grep -q pararia cedo e o tar
+# levaria SIGPIPE, fazendo um backup bom parecer falho.
+grep -q '^\.hermes/' < <(tar -I zstd -tf "$latest") || die "backup sem .hermes/"
 ok "backup em $latest; próximo: $(systemctl show jarvis-backup.timer -p NextElapseUSecRealtime --value)"
