@@ -1,0 +1,3 @@
+// Atualizações automáticas: só as de segurança (padrão do unattended-upgrades no Ubuntu).
+APT::Periodic::Update-Package-Lists "1";
+APT::Periodic::Unattended-Upgrade "1";
