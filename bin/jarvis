@@ -17,10 +17,18 @@ export JARVIS_REPO="${JARVIS_REPO:-$(dirname "$(dirname "$SELF")")}"
 # shellcheck source=provision/lib.sh
 source "$JARVIS_REPO/provision/lib.sh"
 
-if [[ $EUID -eq 0 ]]; then SUDO=${SUDO-}; else SUDO=${SUDO-sudo}; fi
+# SUDO: comandos de sistema (systemctl, jarvis-peer).
+# HSUDO: TUDO que lê ou grava na pasta do Hermes roda COMO o usuário hermes, nunca como root.
+# A pasta é do hermes; se root a tocasse, um link simbólico plantado ali viraria escalada para root.
+if [[ $EUID -eq 0 ]]; then
+  SUDO=${SUDO-}
+  HSUDO=${HSUDO-runuser -u $HERMES_USER --}
+else
+  SUDO=${SUDO-sudo}
+  HSUDO=${HSUDO-sudo -u $HERMES_USER}
+fi
 SYSTEMCTL=${SYSTEMCTL:-$SUDO systemctl}
 HERMES_HOME=${HERMES_HOME:-$HERMES_DIR/.hermes}
-HERMES_GROUP=${HERMES_GROUP:-$HERMES_USER}
 JARVIS_STATE=${JARVIS_STATE:-/var/lib/jarvis}
 BACKUP_DIR=${BACKUP_DIR:-/var/backups/jarvis}
 LOCAL_BACKUP_DIR=${LOCAL_BACKUP_DIR:-$HOME/backups/jarvis}
@@ -33,15 +41,45 @@ MANAGED_SKILLS=skills/jarvis
 SERVICES=(hermes-gateway hermes-dashboard)
 REQUIRED_ENV=(OPENAI_API_KEY TELEGRAM_BOT_TOKEN TELEGRAM_ALLOWED_USERS TELEGRAM_HOME_CHANNEL GITHUB_TOKEN)
 
-EMPTY_DIR=$(mktemp -d)
-trap 'rm -rf "$EMPTY_DIR"' EXIT
+WORK=$(mktemp -d)
+trap 'rm -rf "$WORK"' EXIT
+mkdir "$WORK/empty"
+
+# refuse_symlinks — o Hermes não tem motivo para ter links nos itens gerenciados; se tiver, pare.
+refuse_symlinks() {
+  local p found
+  for p in "$HERMES_HOME" "$HERMES_HOME/skills" "$HERMES_HOME/$MANAGED_SKILLS" \
+           "${MANAGED_FILES[@]/#/$HERMES_HOME/}" "$HERMES_HOME/.env"; do
+    if $HSUDO test -L "$p"; then
+      die "link simbólico inesperado no Hermes: $p — investigue e remova antes de continuar"
+    fi
+  done
+  if $HSUDO test -d "$HERMES_HOME/$MANAGED_SKILLS"; then
+    found=$($HSUDO find "$HERMES_HOME/$MANAGED_SKILLS" ! -type f ! -type d)
+    [[ -z $found ]] || die "link simbólico ou arquivo especial em skills/jarvis: $found"
+  fi
+}
+
+# export_live DESTINO — copia (como hermes) os itens gerenciados do Hermes para DESTINO.
+export_live() {
+  local dest=$1 items=() f
+  refuse_symlinks
+  mkdir -p "$dest"
+  for f in "${MANAGED_FILES[@]}" "$MANAGED_SKILLS"; do
+    if $HSUDO test -e "$HERMES_HOME/$f"; then items+=("$f"); fi
+  done
+  if ((${#items[@]})); then
+    $HSUDO tar -C "$HERMES_HOME" -cf - "${items[@]}" | tar -C "$dest" -xf -
+  fi
+  [[ -z $(find "$dest" ! -type f ! -type d) ]] || die "link simbólico ou arquivo especial no Hermes"
+}
 
 # _or_empty CAMINHO f|d — o próprio caminho ou um substituto vazio (para o diff).
 _or_empty() {
-  if $SUDO test -e "$1"; then
+  if [[ -e $1 ]]; then
     echo "$1"
   elif [[ $2 == d ]]; then
-    echo "$EMPTY_DIR"
+    echo "$WORK/empty"
   else
     echo /dev/null
   fi
@@ -51,38 +89,37 @@ _or_empty() {
 diff_tree() {
   local a=$1 b=$2 rc=0 f
   for f in "${MANAGED_FILES[@]}"; do
-    $SUDO diff -u --label "repo/$f" --label "hermes/$f" \
+    diff -u --label "repo/$f" --label "hermes/$f" \
       "$(_or_empty "$a/$f" f)" "$(_or_empty "$b/$f" f)" || rc=1
   done
-  $SUDO diff -ruN "$(_or_empty "$a/$MANAGED_SKILLS" d)" "$(_or_empty "$b/$MANAGED_SKILLS" d)" || rc=1
+  diff -ruN "$(_or_empty "$a/$MANAGED_SKILLS" d)" "$(_or_empty "$b/$MANAGED_SKILLS" d)" || rc=1
   return "$rc"
 }
 
-# snapshot_applied — guarda o estado atual do Hermes como "último aplicado".
-snapshot_applied() {
-  local f
-  $SUDO rm -rf "$APPLIED"
-  $SUDO install -d -m 700 "$APPLIED/skills"
-  for f in "${MANAGED_FILES[@]}"; do
-    if $SUDO test -f "$HERMES_HOME/$f"; then
-      $SUDO cp "$HERMES_HOME/$f" "$APPLIED/$f"
-    fi
-  done
-  if $SUDO test -d "$HERMES_HOME/$MANAGED_SKILLS"; then
-    $SUDO cp -r "$HERMES_HOME/$MANAGED_SKILLS" "$APPLIED/skills/"
-  fi
+# snapshot_from DIR — guarda DIR como "último estado aplicado/importado".
+snapshot_from() {
+  rm -rf "$APPLIED"
+  mkdir -p "$APPLIED"
+  chmod 700 "$APPLIED"
+  cp -r "$1/." "$APPLIED/"
+}
+
+cmd_diff() {
+  export_live "$WORK/live"
+  diff_tree "$SRC" "$WORK/live" && ok "sem diferenças"
 }
 
 cmd_apply() {
   local force=0 f
   if [[ ${1:-} == --force ]]; then force=1; fi
 
+  export_live "$WORK/live"
   if [[ -d $APPLIED ]]; then
-    if ! diff_tree "$APPLIED" "$HERMES_HOME" >/dev/null; then
+    if ! diff_tree "$APPLIED" "$WORK/live" >/dev/null; then
       ((force)) || die "o Hermes tem mudanças que não estão no repo. Veja com 'jarvis diff', traga com 'jarvis import' ou descarte com 'jarvis apply --force'."
       warn "--force: descartando mudanças feitas no Hermes"
     fi
-  elif $SUDO test -f "$HERMES_HOME/config.yaml"; then
+  elif [[ -f $WORK/live/config.yaml ]]; then
     ((force)) || die "primeira vez: rode 'jarvis import' para trazer a configuração atual do Hermes para o repo (ou 'jarvis apply --force')."
   fi
 
@@ -91,61 +128,51 @@ cmd_apply() {
   done
   [[ -d $SRC/$MANAGED_SKILLS ]] || die "faltando no repo: hermes/$MANAGED_SKILLS/"
 
-  for f in "${MANAGED_FILES[@]}"; do
-    $SUDO install -D -m 640 -o "$HERMES_USER" -g "$HERMES_GROUP" "$SRC/$f" "$HERMES_HOME/$f"
-  done
-  $SUDO install -d -m 750 -o "$HERMES_USER" -g "$HERMES_GROUP" "$HERMES_HOME/skills" "$HERMES_HOME/$MANAGED_SKILLS"
-  $SUDO rsync -a --delete --chown="$HERMES_USER:$HERMES_GROUP" "$SRC/$MANAGED_SKILLS/" "$HERMES_HOME/$MANAGED_SKILLS/"
+  # Grava como hermes: remove as skills gerenciadas e extrai a versão do repo.
+  $HSUDO rm -rf "$HERMES_HOME/$MANAGED_SKILLS"
+  tar -C "$SRC" --mode='u=rwX,g=rX,o=' -cf - "${MANAGED_FILES[@]}" "$MANAGED_SKILLS" |
+    $HSUDO tar -C "$HERMES_HOME" -xf -
 
-  snapshot_applied
+  export_live "$WORK/aplicado"
+  snapshot_from "$WORK/aplicado"
   $SYSTEMCTL restart "${SERVICES[@]}"
   ok "aplicado; serviços reiniciados: ${SERVICES[*]}"
 }
 
 cmd_import() {
-  local stage f has_skills=0 hits
-  stage=$(mktemp -d)
+  local stage="$WORK/stage" f hits
+  export_live "$stage"
   for f in "${MANAGED_FILES[@]}"; do
-    if $SUDO test -f "$HERMES_HOME/$f"; then
-      $SUDO cat "$HERMES_HOME/$f" >"$stage/$f"
-    else
-      warn "não existe no Hermes, mantido no repo como está: hermes/$f"
-    fi
+    if [[ ! -f $stage/$f ]]; then warn "não existe no Hermes, mantido no repo como está: hermes/$f"; fi
   done
-  if $SUDO test -d "$HERMES_HOME/$MANAGED_SKILLS"; then
-    has_skills=1
-    mkdir -p "$stage/skills"
-    $SUDO tar -C "$HERMES_HOME/skills" -cf - "${MANAGED_SKILLS#skills/}" | tar -C "$stage/skills" -xf -
-  fi
 
-  if hits=$(grep -rlE "$SECRET_RE" "$stage"); then
-    rm -rf "$stage"
+  if hits=$( (grep -rlE "$SECRET_RE" "$stage"; grep -rliE "$SECRET_KEY_RE" "$stage") | sort -u) && [[ -n $hits ]]; then
     die "possível segredo encontrado em: ${hits//$stage\//hermes/} — tire do arquivo no Hermes (segredos vão no .env) e rode de novo"
   fi
 
   for f in "${MANAGED_FILES[@]}"; do
     if [[ -f $stage/$f ]]; then cp "$stage/$f" "$SRC/$f"; fi
   done
-  if ((has_skills)); then
+  if [[ -d $stage/$MANAGED_SKILLS ]]; then
     rm -rf "${SRC:?}/$MANAGED_SKILLS"
     mkdir -p "$SRC/skills"
     cp -r "$stage/$MANAGED_SKILLS" "$SRC/skills/"
   fi
-  rm -rf "$stage"
 
-  snapshot_applied
+  snapshot_from "$stage"
   git -C "$JARVIS_REPO" status --short -- hermes/ 2>/dev/null || true
   ok "importado. Revise com 'git diff' e faça commit."
 }
 
 cmd_check_env() {
   local envf="$HERMES_HOME/.env" v mode missing=()
-  $SUDO test -f "$envf" || die "não encontrado: $envf — veja .env.example"
+  if $HSUDO test -L "$envf"; then die "$envf é um link simbólico — investigue"; fi
+  $HSUDO test -f "$envf" || die "não encontrado: $envf — veja .env.example"
   for v in "${REQUIRED_ENV[@]}"; do
-    $SUDO grep -qE "^${v}=[^[:space:]]+" "$envf" || missing+=("$v")
+    $HSUDO grep -qE "^${v}=[^[:space:]]+" "$envf" || missing+=("$v")
   done
-  mode=$($SUDO stat -c %a "$envf")
-  [[ $mode == 600 ]] || warn "$envf tem permissão $mode; o certo é 600 (sudo chmod 600 $envf)"
+  mode=$($HSUDO stat -c %a "$envf")
+  [[ $mode == 600 ]] || warn "$envf tem permissão $mode; o certo é 600 (sudo -u $HERMES_USER chmod 600 $envf)"
   ((${#missing[@]} == 0)) || die "preencha no .env: ${missing[*]}"
   ok ".env completo"
 }
@@ -162,6 +189,7 @@ cmd_status() {
   ss -Htuln | awk '{print "  " $1, $5}' | grep -vE "[[:space:]](127\.|\[::1\]|$WG_SERVER_IP:)" || true
   log "último backup"
   { ls -1t "$BACKUP_DIR"/*.tar.zst 2>/dev/null || echo "  nenhum"; } | head -1
+  echo "  resultado da última execução: $(systemctl show jarvis-backup.service -p Result --value 2>/dev/null || echo '?')"
   log ".env"
   (cmd_check_env) || true
 }
@@ -192,7 +220,7 @@ cmd_update() {
 
 case ${1:-} in
   apply) shift; cmd_apply "$@" ;;
-  diff) diff_tree "$SRC" "$HERMES_HOME" && ok "sem diferenças" ;;
+  diff) cmd_diff ;;
   import) cmd_import ;;
   check-env) cmd_check_env ;;
   status) cmd_status ;;

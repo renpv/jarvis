@@ -11,6 +11,8 @@ source "$PROVISION_DIR/vars.sh"
 
 # Padrões de tokens que nunca podem ir para o Git (OpenAI, GitHub, Telegram).
 SECRET_RE='(sk-[A-Za-z0-9_-]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|[0-9]{8,10}:AA[A-Za-z0-9_-]{30,})'
+# Chaves com nome de segredo e valor literal (não ${VAR}), e chaves privadas PEM. Usar com grep -iE.
+SECRET_KEY_RE=$'^[[:space:]]*(api_?key|token|secret|password|passwd|private_key|client_secret)[[:space:]]*:[[:space:]]*[\'"]?[^\'"[:space:]$]{8,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 
 JARVIS_CHANGED=${JARVIS_CHANGED:-0}
 

@@ -14,11 +14,13 @@ if ! id "$HERMES_USER" &>/dev/null; then
   useradd --system --create-home --home-dir "$HERMES_DIR" --shell /bin/bash "$HERMES_USER"
 fi
 usermod -aG systemd-journal "$HERMES_USER"   # pode ler logs para monitorar serviços
-chmod 750 "$HERMES_DIR"
-for d in workspace apps notas; do
-  install -d -m 750 -o "$HERMES_USER" -g "$HERMES_USER" "$HERMES_DIR/$d"
-done
-install -d -m 700 /var/lib/jarvis
+chmod 750 "$HERMES_DIR"   # a própria home: o hermes não consegue trocá-la por um link
+# Dentro da home do hermes, tudo é feito COMO hermes: um link plantado ali não vira acesso de root.
+as_hermes mkdir -p "$HERMES_DIR/workspace" "$HERMES_DIR/apps" "$HERMES_DIR/notas" "$HERMES_DIR/.hermes"
+as_hermes chmod 750 "$HERMES_DIR/workspace" "$HERMES_DIR/apps" "$HERMES_DIR/notas"
+as_hermes chmod 700 "$HERMES_DIR/.hermes"
+# Estado do comando jarvis (cópia do último apply/import): do admin, que é quem roda o jarvis.
+install -d -m 700 -o "$ADMIN_USER" -g "$ADMIN_USER" /var/lib/jarvis
 
 HB="$HERMES_DIR/.local/bin/hermes"
 if [[ ! -x $HB ]]; then
@@ -32,15 +34,16 @@ as_hermes git config --global user.email "jarvis@$(hostname)"
 
 log ".env"
 envf="$HERMES_DIR/.hermes/.env"
-install -d -m 700 -o "$HERMES_USER" -g "$HERMES_USER" "$HERMES_DIR/.hermes"
-if ! grep -qs '^# jarvis:env' "$envf"; then
-  if [[ -f $envf ]]; then
-    mv "$envf" "$envf.instalador"
+if as_hermes test -L "$envf"; then die "$envf é um link simbólico — investigue antes de continuar"; fi
+if ! as_hermes grep -qs '^# jarvis:env' "$envf"; then
+  if as_hermes test -f "$envf"; then
+    as_hermes mv "$envf" "$envf.instalador"
     warn "o .env criado pelo instalador foi guardado em $envf.instalador (para consulta)"
   fi
-  install -m 600 -o "$HERMES_USER" -g "$HERMES_USER" "$JARVIS_REPO/.env.example" "$envf"
+  # shellcheck disable=SC2016  # $1 expande no sh do hermes, de propósito
+  as_hermes sh -c 'umask 077 && cat > "$1"' _ "$envf" <"$JARVIS_REPO/.env.example"
 fi
-chmod 600 "$envf"
+as_hermes chmod 600 "$envf"
 
 log "serviços systemd"
 # shellcheck disable=SC2034  # usado pelo render via nome
@@ -56,5 +59,5 @@ systemctl enable hermes-gateway hermes-dashboard
 if "$JARVIS_REPO/bin/jarvis" check-env; then
   ok "Hermes instalado. Próximo: 'jarvis import' (primeira vez) — veja docs/aprendizado/40-hermes.md"
 else
-  warn "preencha o .env:  sudo nano $envf   — depois rode este script de novo"
+  warn "preencha o .env:  sudo -u $HERMES_USER nano $envf   — depois rode este script de novo"
 fi

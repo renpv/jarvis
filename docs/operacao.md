@@ -72,7 +72,6 @@ Revogar um dispositivo: apague o bloco que começa com `# peer: NOME` em
 4. Restaure:
    ```bash
    sudo tar -C /var/lib/hermes -I zstd -xpf /tmp/ARQUIVO.tar.zst
-   sudo chown -R hermes:hermes /var/lib/hermes/.hermes /var/lib/hermes/apps /var/lib/hermes/notas
    jarvis diff
    sudo systemctl start hermes-gateway hermes-dashboard
    ```
@@ -83,6 +82,10 @@ Revogar um dispositivo: apague o bloco que começa com `# peer: NOME` em
      bash -c 'cd /var/lib/hermes/apps/APP && docker compose up -d'
    sudo jarvis-expose APP PORTA
    ```
+
+Não rode `chown -R` depois de restaurar: o `tar` como root já devolve os donos certos —
+inclusive os UIDs "estranhos" (300000+) dos arquivos criados pelos containers rootless, que um
+`chown -R hermes` estragaria.
 
 **O que NÃO está no backup:** as chaves do WireGuard (os dispositivos são adicionados de novo),
 `/etc/caddy/secrets.env` (o `30-dns-caddy.sh` pede a senha de novo) e o clone `/opt/jarvis`
@@ -98,7 +101,7 @@ Revogar um dispositivo: apague o bloco que começa com `# peer: NOME` em
 
 Trocar um valor no `.env`:
 ```bash
-sudo nano /var/lib/hermes/.hermes/.env
+sudo -u hermes nano /var/lib/hermes/.hermes/.env   # como hermes, nunca como root
 jarvis check-env
 sudo systemctl restart hermes-gateway hermes-dashboard
 ```

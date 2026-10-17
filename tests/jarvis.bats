@@ -6,7 +6,7 @@ setup() {
   export HERMES_HOME="$SANDBOX/live/.hermes"
   export JARVIS_STATE="$SANDBOX/state"
   export HERMES_USER="$(id -un)" HERMES_GROUP="$(id -gn)"
-  export SUDO="" SYSTEMCTL=":"
+  export SUDO="" HSUDO="" SYSTEMCTL=":"
   mkdir -p "$JARVIS_REPO/hermes/skills/jarvis/exemplo" "$HERMES_HOME" "$JARVIS_STATE"
   cp -r "$REPO_ROOT/provision" "$JARVIS_REPO/"
   git -C "$JARVIS_REPO" init -q
@@ -146,4 +146,59 @@ setup() {
   run "$JARVIS"
   [ "$status" -eq 2 ]
   [[ "$output" == *"jarvis apply"* ]]
+}
+
+@test "apply recusa link simbólico plantado no Hermes e não toca o alvo" {
+  "$JARVIS" apply
+  mkdir -p "$SANDBOX/alvo" && echo importante > "$SANDBOX/alvo/arquivo"
+  modo_antes=$(stat -c %a "$SANDBOX/alvo")
+  rm -rf "$HERMES_HOME/skills"
+  ln -s "$SANDBOX/alvo" "$HERMES_HOME/skills"
+  run "$JARVIS" import
+  [ "$status" -ne 0 ]
+  run "$JARVIS" apply --force
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"link simbólico"* ]]
+  [ "$(cat "$SANDBOX/alvo/arquivo")" = importante ]
+  [ "$(stat -c %a "$SANDBOX/alvo")" = "$modo_antes" ]
+}
+
+@test "import recusa config.yaml que é link para outro arquivo" {
+  "$JARVIS" apply
+  echo "conteudo-sensivel" > "$SANDBOX/segredo"
+  rm "$HERMES_HOME/config.yaml"
+  ln -s "$SANDBOX/segredo" "$HERMES_HOME/config.yaml"
+  run "$JARVIS" import
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"link simbólico"* ]]
+  [ "$(cat "$JARVIS_REPO/hermes/config.yaml")" = "model: a" ]
+}
+
+@test "diff recusa link simbólico dentro de skills/jarvis" {
+  "$JARVIS" apply
+  ln -s /dev/zero "$HERMES_HOME/skills/jarvis/exemplo/zero"
+  run timeout 10 "$JARVIS" diff
+  [ "$status" -ne 0 ]
+  [ "$status" -ne 124 ]
+  [[ "$output" == *"link simbólico"* ]]
+}
+
+@test "import aborta com chave de nome sensível ou chave privada PEM" {
+  "$JARVIS" apply
+  printf 'model: a\npassword: hunter2hunter2\n' > "$HERMES_HOME/config.yaml"
+  run "$JARVIS" import
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"segredo"* ]]
+  printf 'model: a\n' > "$HERMES_HOME/config.yaml"
+  printf -- '-----BEGIN OPENSSH PRIVATE KEY-----\nabc\n' > "$HERMES_HOME/skills/jarvis/exemplo/SKILL.md"
+  run "$JARVIS" import
+  [ "$status" -ne 0 ]
+  [ "$(cat "$JARVIS_REPO/hermes/skills/jarvis/exemplo/SKILL.md")" = "skill v1" ]
+}
+
+@test "import aceita referência a variável de ambiente e chaves comuns" {
+  "$JARVIS" apply
+  printf 'model:\n  api_key: ${OPENAI_API_KEY}\n  key_env: OPENAI_API_KEY\nmax_tokens: 4096\n' > "$HERMES_HOME/config.yaml"
+  run "$JARVIS" import
+  [ "$status" -eq 0 ]
 }
