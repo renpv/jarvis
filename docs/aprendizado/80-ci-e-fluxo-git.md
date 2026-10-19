@@ -81,7 +81,7 @@ jarvis deploy
 1. Recusa se o `/opt/jarvis` não estiver no `prod` ou tiver mudanças locais.
 2. Busca o `prod`; se não houver nada novo, para.
 3. Recusa se o histórico do `prod` tiver sido reescrito.
-4. Consulta no GitHub os check runs do commit. Todos os listados em `ci/testes-exigidos.txt` **da versão já implantada** precisam estar `completed/success`. Re-runs: vale o mais recente.
+4. Procura no GitHub a execução do **`portao-2.yml` disparada por push no `prod`** nesse commit e lê os jobs da tentativa mais recente. Todos os listados em `ci/testes-exigidos.txt` **da versão já implantada** precisam estar `completed/success`. Um job de mesmo nome vindo de outro workflow ou evento não conta.
 5. Mostra os commits e arquivos, pede `s/N` e avança por fast-forward.
 6. Sugere os scripts a rodar de novo. Se `hermes/` mudou, oferece o `jarvis apply`. Scripts de root nunca rodam sozinhos.
 
@@ -89,7 +89,7 @@ jarvis deploy
 
 1. GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens** → Generate new token.
 2. **Repository access:** Only select repositories → `renpv/jarvis`.
-3. **Permissions → Repository permissions → Checks: Read-only.** Nada mais.
+3. **Permissions → Repository permissions → Actions: Read-only.** Nada mais (o *Metadata: Read-only* vem junto). Não use *Checks*: tokens fine-grained não conseguem ler check runs, e o GitHub responde 403 (só GitHub Apps têm essa permissão).
 4. **Expiration:** 1 ano. Anote a data.
 5. Na VPS:
    ```bash
@@ -98,7 +98,7 @@ jarvis deploy
    jarvis check
    ```
 
-O token só lê resultados de testes de um repositório. Ele fica na sua home (modo 600), fora do alcance do `hermes`.
+O token só lê execuções e jobs do Actions de um repositório. Ele fica na sua home (modo 600), fora do alcance do `hermes`.
 
 ## 6. Mudança feita no dashboard (`jarvis import`) no fluxo novo
 

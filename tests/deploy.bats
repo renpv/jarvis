@@ -20,7 +20,10 @@ setup() {
   cat > "$SANDBOX/api" <<EOF
 #!/usr/bin/env bash
 echo "\$1" >> "$SANDBOX/api.log"
-cat "$SANDBOX/checks.json"
+case "\$1" in
+  */actions/workflows/*) cat "$SANDBOX/runs.json" ;;
+  *) cat "$SANDBOX/jobs.json" ;;
+esac
 EOF
   chmod +x "$SANDBOX/api"
   export DEPLOY_TOKEN_FILE="$SANDBOX/token" JARVIS_HTTP="$SANDBOX/api"
@@ -35,14 +38,22 @@ novo_commit() {   # novo_commit ARQUIVO [MENSAGEM]
   git -C "$WORK" push -q origin HEAD:main HEAD:prod
 }
 
-checks() {   # checks "nome|status|conclusao|started_at" ...
+execucao() {   # execucao [EVENTO] — a execução do portao-2 para o commit atual do prod (falsa)
+  local sha
+  sha=$(git -C "$WORK" rev-parse HEAD)
+  printf '{"total_count":1,"workflow_runs":[{"id":4242,"head_sha":"%s","event":"%s","head_branch":"prod","path":".github/workflows/portao-2.yml","created_at":"2026-10-19T10:00:00Z"}]}\n' \
+    "$sha" "${1:-push}" > "$SANDBOX/runs.json"
+}
+
+checks() {   # checks "nome|status|conclusao|started_at" ... — jobs da execução (falsos)
   local runs=() c n s co t
   for c in "$@"; do
     IFS='|' read -r n s co t <<<"$c"
     runs+=("{\"name\":\"$n\",\"status\":\"$s\",\"conclusion\":\"$co\",\"started_at\":\"${t:-2026-10-19T10:00:00Z}\"}")
   done
   local IFS=,
-  printf '{"total_count":%d,"check_runs":[%s]}\n' "${#runs[@]}" "${runs[*]}" > "$SANDBOX/checks.json"
+  printf '{"total_count":%d,"jobs":[%s]}\n' "${#runs[@]}" "${runs[*]}" > "$SANDBOX/jobs.json"
+  execucao
 }
 
 verdes() { checks "portao-1 / lint|completed|success" "integracao|completed|success"; }
@@ -62,7 +73,8 @@ verdes() { checks "portao-1 / lint|completed|success" "integracao|completed|succ
   run bash -c "printf 's\n' | '$JARVIS' deploy"
   [ "$status" -eq 0 ]
   [ "$(git -C "$JARVIS_REPO" rev-parse HEAD)" = "$sha" ]
-  grep -q "/commits/$sha/check-runs" "$SANDBOX/api.log"
+  grep -q "/actions/workflows/portao-2.yml/runs?.*head_sha=$sha" "$SANDBOX/api.log"
+  grep -q "/actions/runs/4242/jobs?filter=latest" "$SANDBOX/api.log"
   [[ "$output" == *"docs: algo"* ]]
 }
 
@@ -206,4 +218,21 @@ verdes() { checks "portao-1 / lint|completed|success" "integracao|completed|succ
   GITHUB_SLUG=invalido run bash -c "printf 'n\n' | '$JARVIS' deploy"
   [ "$status" -ne 0 ]
   [[ "$output" == *"GITHUB_SLUG"* ]]
+}
+
+@test "sem execução do portao-2 para o commit: recusa" {
+  novo_commit docs/x.md
+  verdes
+  printf '{"total_count":0,"workflow_runs":[]}\n' > "$SANDBOX/runs.json"
+  run bash -c "printf 's\n' | '$JARVIS' deploy"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"portao-2"* ]]
+}
+
+@test "execução de outro evento (ex.: pull_request) não vale como aprovação do prod" {
+  novo_commit docs/x.md
+  verdes
+  execucao pull_request
+  run bash -c "printf 's\n' | '$JARVIS' deploy"
+  [ "$status" -ne 0 ]
 }
