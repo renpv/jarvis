@@ -54,14 +54,15 @@ setup() {
 
 caddy_validate() {
   local hash
-  hash=$(docker run --rm caddy:2.10 caddy hash-password --plaintext teste)
-  docker run --rm -v "$SANDBOX/caddy:/etc/caddy:ro" \
+  # timeout: um Docker local travado não pode prender o pre-push para sempre
+  hash=$(timeout 120 docker run --rm caddy:2.10 caddy hash-password --plaintext teste)
+  timeout 120 docker run --rm -v "$SANDBOX/caddy:/etc/caddy:ro" \
     -e DASHBOARD_USER=renpv -e DASHBOARD_HASH="$hash" \
     caddy:2.10 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 }
 
 @test "Caddyfile é válido sem nenhum app publicado" {
-  docker info >/dev/null 2>&1 || skip "docker indisponível"
+  timeout 20 docker info >/dev/null 2>&1 || skip "docker indisponível"
   mkdir -p "$SANDBOX/caddy/apps.d"
   render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT > "$SANDBOX/caddy/Caddyfile"
   run caddy_validate
@@ -69,7 +70,7 @@ caddy_validate() {
 }
 
 @test "Caddyfile é válido com um app publicado pelo jarvis-expose" {
-  docker info >/dev/null 2>&1 || skip "docker indisponível"
+  timeout 20 docker info >/dev/null 2>&1 || skip "docker indisponível"
   mkdir -p "$SANDBOX/caddy/apps.d"
   render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT > "$SANDBOX/caddy/Caddyfile"
   APPS_DIR="$SANDBOX/caddy/apps.d" "$REPO_ROOT/bin/jarvis-expose" exemplo 8101
