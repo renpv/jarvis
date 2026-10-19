@@ -25,3 +25,12 @@ load helpers
   run grep -l '^require_root' "$REPO_ROOT"/provision/[0-9]*.sh
   [ -z "$output" ]
 }
+
+@test "50 instala explicitamente as dependências do Docker rootless (sem depender de Recommends)" {
+  grep -E '^apt_install .*docker-ce-rootless-extras' "$REPO_ROOT/provision/50-docker-rootless.sh" | grep -q slirp4netns
+  grep -E '^apt_install .*docker-ce-rootless-extras' "$REPO_ROOT/provision/50-docker-rootless.sh" | grep -q dbus-user-session
+}
+
+@test "50 mostra o journal do docker rootless quando ele não sobe" {
+  grep -q 'journalctl --user' "$REPO_ROOT/provision/50-docker-rootless.sh"
+}

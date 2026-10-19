@@ -17,7 +17,8 @@ if [[ ! -f /etc/apt/sources.list.d/docker.list ]]; then
     >/etc/apt/sources.list.d/docker.list
   apt_get update -q
 fi
-apt_install docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras docker-compose-plugin uidmap
+# slirp4netns (rede) e dbus-user-session (systemctl --user) explícitos: alguns ambientes não instalam "Recommends".
+apt_install docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras docker-compose-plugin uidmap slirp4netns dbus-user-session
 
 # Ubuntu 24.04 restringe user namespaces sem privilégio; o rootlesskit precisa de um perfil AppArmor.
 if [[ -d /etc/apparmor.d ]] && ! grep -rqs rootlesskit /etc/apparmor.d; then
@@ -48,11 +49,15 @@ for _ in $(seq 1 20); do
 done
 [[ -S /run/user/$uid/bus ]] || die "a sessão systemd do usuário $HERMES_USER não subiu"
 
+docker_log() {
+  warn "o Docker rootless do $HERMES_USER não subiu; últimas linhas do journal:"
+  as_hermes journalctl --user --unit docker.service -n 40 --no-pager >&2 || true
+}
 if [[ ! -f $HERMES_DIR/.config/systemd/user/docker.service ]]; then
   log "configurando o Docker rootless do $HERMES_USER"
-  as_hermes dockerd-rootless-setuptool.sh install
+  as_hermes dockerd-rootless-setuptool.sh install || { docker_log; die "falha ao configurar o Docker rootless"; }
 fi
-as_hermes systemctl --user enable --now docker
+as_hermes systemctl --user enable --now docker || { docker_log; die "falha ao iniciar o Docker rootless"; }
 
 log "jarvis-expose e sudoers"
 install -m 755 "$JARVIS_REPO/bin/jarvis-expose" /usr/local/sbin/jarvis-expose
