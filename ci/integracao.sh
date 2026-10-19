@@ -90,7 +90,7 @@ fim
 
 grupo "dispositivo de teste na VPN"
 sudo jarvis-peer add ci-teste >/dev/null
-sudo wg show wg0 peers | grep -q .
+[[ -n $(sudo wg show wg0 peers) ]]
 fim
 
 grupo "auditoria"
