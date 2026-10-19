@@ -57,7 +57,8 @@ log "verificando"
 [[ -n $(dig +short @"$WG_SERVER_IP" github.com) ]] || die "DNS não encaminha nomes externos"
 code=$(curl -s -o /dev/null -w '%{http_code}' --resolve "hermes.$DOMAIN:80:$WG_SERVER_IP" "http://hermes.$DOMAIN/")
 [[ $code == 401 ]] || die "esperava 401 (pedido de senha) do Caddy, veio $code"
-if ss -Htln 'sport = :80' | awk '{print $4}' | grep -qv "^$WG_SERVER_IP:"; then
+porta80=$(ss -Htln 'sport = :80' | awk '{print $4}')
+if [[ -n $porta80 ]] && grep -qv "^$WG_SERVER_IP:" <<<"$porta80"; then
   die "algo escuta na porta 80 fora do IP da VPN"
 fi
 ok "DNS e Caddy ativos só na VPN"
