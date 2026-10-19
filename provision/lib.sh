@@ -104,3 +104,97 @@ as_hermes() {
     (cd / && sudo -u "$HERMES_USER" env "${envs[@]}" "$@")
   fi
 }
+
+# ── Preflight: valida tudo ANTES de alterar a máquina ─────────────────────────
+
+_is_port() { [[ $1 =~ ^[1-9][0-9]{0,4}$ ]] && (($1 <= 65535)); }
+_is_octet() { [[ $1 =~ ^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])$ ]]; }
+_is_ipv4() {
+  [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+  local IFS=. o
+  for o in $1; do _is_octet "$o" || return 1; done
+}
+# O último rótulo (TLD) começa com letra: "203.0.113" não é nome DNS.
+_is_dns() { [[ $1 =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$ ]]; }
+_is_user() { [[ $1 =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]; }
+_is_abspath() { [[ $1 == /* && $1 != *..* && $1 != *[[:space:]]* ]]; }
+
+# check_vars — valida o vars.sh. Imprime um problema por linha; retorna 1 se houver algum.
+check_vars() {
+  local e=() p
+  _is_user "$ADMIN_USER" || e+=("ADMIN_USER inválido: '$ADMIN_USER' (minúsculas, números, _ e -)")
+  _is_user "$HERMES_USER" || e+=("HERMES_USER inválido: '$HERMES_USER'")
+  [[ $ADMIN_USER != "$HERMES_USER" ]] || e+=("ADMIN_USER e HERMES_USER precisam ser diferentes")
+  [[ $ADMIN_USER != root && $HERMES_USER != root ]] || e+=("ADMIN_USER/HERMES_USER não podem ser root")
+  _is_abspath "$HERMES_DIR" || e+=("HERMES_DIR precisa ser caminho absoluto, sem '..' e sem espaço: '$HERMES_DIR'")
+  _is_abspath "$JARVIS_DIR" || e+=("JARVIS_DIR precisa ser caminho absoluto, sem '..' e sem espaço: '$JARVIS_DIR'")
+  [[ $GITHUB_SLUG =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || e+=("GITHUB_SLUG precisa ser dono/repo: '$GITHUB_SLUG'")
+  [[ $GITHUB_REPO == git@github.com:* || $GITHUB_REPO == https://github.com/* ]] ||
+    e+=("GITHUB_REPO precisa ser do github.com: '$GITHUB_REPO'")
+  [[ -n $TIMEZONE && $TIMEZONE != *..* && -f ${ZONEINFO_DIR:-/usr/share/zoneinfo}/$TIMEZONE ]] ||
+    e+=("TIMEZONE inexistente: '$TIMEZONE' (veja timedatectl list-timezones)")
+  _is_dns "$DOMAIN" || e+=("DOMAIN inválido: '$DOMAIN' (minúsculas, com pelo menos um ponto)")
+  [[ $WG_IF =~ ^[a-z][a-z0-9]{0,14}$ ]] || e+=("WG_IF inválido: '$WG_IF'")
+  for p in WG_PORT DASHBOARD_PORT APP_PORT_MIN APP_PORT_MAX; do
+    _is_port "${!p}" || e+=("$p inválida: '${!p}' (inteiro de 1 a 65535)")
+  done
+  if _is_port "$APP_PORT_MIN" && _is_port "$APP_PORT_MAX"; then
+    ((APP_PORT_MIN < APP_PORT_MAX)) || e+=("APP_PORT_MIN ($APP_PORT_MIN) precisa ser menor que APP_PORT_MAX ($APP_PORT_MAX)")
+    if _is_port "$DASHBOARD_PORT" && ((DASHBOARD_PORT >= APP_PORT_MIN && DASHBOARD_PORT <= APP_PORT_MAX)); then
+      e+=("DASHBOARD_PORT ($DASHBOARD_PORT) não pode cair na faixa de apps $APP_PORT_MIN–$APP_PORT_MAX")
+    fi
+  fi
+  _is_ipv4 "$WG_NET.0" || e+=("WG_NET inválida: '$WG_NET' (três octetos, ex.: 10.8.0)")
+  if _is_ipv4 "$WG_SERVER_IP"; then
+    [[ ${WG_SERVER_IP%.*} == "$WG_NET" ]] || e+=("WG_SERVER_IP ($WG_SERVER_IP) fora da rede $WG_NET.0/24")
+  else
+    e+=("WG_SERVER_IP inválido: '$WG_SERVER_IP'")
+  fi
+  if [[ -n $WG_ENDPOINT ]] && ! _is_ipv4 "$WG_ENDPOINT" && ! _is_dns "$WG_ENDPOINT"; then
+    e+=("WG_ENDPOINT inválido: '$WG_ENDPOINT' (vazio, IPv4 ou nome DNS)")
+  fi
+  ((${#e[@]} == 0)) && return 0
+  printf '%s\n' "${e[@]}"
+  return 1
+}
+
+# check_os — Ubuntu 24.04?
+check_os() {
+  local f=${OS_RELEASE:-/etc/os-release}
+  [[ -r $f ]] || return 1
+  # shellcheck disable=SC1090  # arquivo do sistema (ou de teste)
+  (. "$f" && [[ ${ID:-} == ubuntu && ${VERSION_ID:-} == 24.04 ]])
+}
+
+# preflight [REQUISITO...] — valida variáveis e requisitos; se houver problema, lista TODOS e sai.
+preflight() {
+  local errs=() out r v h
+  if ! out=$(check_vars); then mapfile -t errs <<<"$out"; fi
+  for r in "$@"; do
+    case $r in
+      os) check_os || errs+=("sistema: este script precisa de Ubuntu 24.04") ;;
+      root) [[ $EUID -eq 0 ]] || errs+=("rode com sudo: sudo $0") ;;
+      sudo-admin) [[ ${SUDO_USER:-} == "$ADMIN_USER" ]] || errs+=("rode como $ADMIN_USER usando sudo (não como root direto)") ;;
+      admin-keys)
+        h=$(getent passwd "$ADMIN_USER" | cut -d: -f6)
+        [[ -n $h && -s $h/.ssh/authorized_keys ]] ||
+          errs+=("$ADMIN_USER sem authorized_keys: endurecer o SSH agora trancaria você para fora")
+        ;;
+      cmd:*) command -v "${r#cmd:}" >/dev/null || errs+=("comando ausente: ${r#cmd:}") ;;
+      ci-env:*)
+        v=${r#ci-env:}
+        if [[ ${JARVIS_CI:-} == 1 && -z ${!v:-} ]]; then errs+=("modo CI: defina $v"); fi
+        ;;
+      iface:*)
+        ip -4 addr show "${r#iface:}" 2>/dev/null | grep -q "inet $WG_SERVER_IP/" ||
+          errs+=("interface ${r#iface:} sem o IP $WG_SERVER_IP (rode 20-wireguard.sh antes)")
+        ;;
+      user:*) id "${r#user:}" &>/dev/null || errs+=("usuário inexistente: ${r#user:}") ;;
+      *) errs+=("requisito desconhecido no preflight: $r") ;;
+    esac
+  done
+  ((${#errs[@]} == 0)) && return 0
+  printf '%sERRO%s preflight encontrou %d problema(s) — nada foi alterado:\n' "$C_R" "$C_0" "${#errs[@]}" >&2
+  printf '  - %s\n' "${errs[@]}" >&2
+  exit 1
+}
