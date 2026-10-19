@@ -82,11 +82,13 @@ install_rendered() {
   rm -f "$tmp"
 }
 
-# as_hermes CMD... — roda CMD como o usuário do Hermes, com o ambiente dele.
+# as_hermes CMD... — roda CMD como o usuário do Hermes, com um ambiente LIMPO (env -i):
+# nada do ambiente de quem chamou vaza (ex.: XDG_CONFIG_HOME apontando para a home do admin).
 as_hermes() {
   local uid
   uid=$(id -u "$HERMES_USER")
   local envs=(
+    LANG=C.UTF-8
     HOME="$HERMES_DIR"
     HERMES_HOME="$HERMES_DIR/.hermes"
     PATH="$HERMES_DIR/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
@@ -99,9 +101,9 @@ as_hermes() {
     )
   fi
   if [[ $EUID -eq 0 ]]; then
-    (cd / && runuser -u "$HERMES_USER" -- env "${envs[@]}" "$@")
+    (cd / && runuser -u "$HERMES_USER" -- env -i "${envs[@]}" "$@")
   else
-    (cd / && sudo -u "$HERMES_USER" env "${envs[@]}" "$@")
+    (cd / && sudo -u "$HERMES_USER" env -i "${envs[@]}" "$@")
   fi
 }
 

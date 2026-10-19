@@ -6,7 +6,7 @@ setup() {
 }
 
 as_hermes() {
-  sudo -u hermes env HOME=/var/lib/hermes XDG_RUNTIME_DIR="/run/user/$HUID" \
+  sudo -u hermes env -i LANG=C.UTF-8 HOME=/var/lib/hermes XDG_RUNTIME_DIR="/run/user/$HUID" \
     DOCKER_HOST="unix:///run/user/$HUID/docker.sock" \
     PATH=/var/lib/hermes/.local/bin:/usr/local/bin:/usr/bin:/bin "$@"
 }
