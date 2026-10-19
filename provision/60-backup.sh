@@ -4,7 +4,7 @@
 set -euo pipefail
 # shellcheck source=provision/lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
-require_root
+preflight os root "user:$HERMES_USER"
 
 apt_install zstd
 install -D -m 644 "$PROVISION_DIR/vars.sh" /etc/jarvis/vars.sh

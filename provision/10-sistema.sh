@@ -4,11 +4,7 @@
 set -euo pipefail
 # shellcheck source=provision/lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
-require_root
-
-[[ ${SUDO_USER:-} == "$ADMIN_USER" ]] || die "rode como $ADMIN_USER usando sudo (não como root direto): sudo $0"
-home=$(getent passwd "$ADMIN_USER" | cut -d: -f6)
-[[ -s $home/.ssh/authorized_keys ]] || die "$ADMIN_USER não tem authorized_keys: endurecer o SSH agora trancaria você para fora"
+preflight os root sudo-admin admin-keys
 
 log "fuso horário: $TIMEZONE"
 timedatectl set-timezone "$TIMEZONE"

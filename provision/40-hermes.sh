@@ -5,7 +5,7 @@
 set -euo pipefail
 # shellcheck source=provision/lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
-require_root
+preflight os root
 
 apt_install git curl xz-utils ca-certificates gh ripgrep jq sqlite3 zstd
 

@@ -9,12 +9,13 @@
 set -euo pipefail
 # shellcheck source=provision/lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
-require_root
+preflight os root
 
 log "atualizando o sistema (pode demorar alguns minutos)"
 apt_get update -q
-apt_get -y -q full-upgrade
-apt_install git curl ca-certificates
+if [[ ${JARVIS_CI:-} != 1 ]]; then apt_get -y -q full-upgrade; fi
+# openssh-server: já vem na VPS, mas não no runner do CI. jq: usado pelo jarvis deploy.
+apt_install git curl ca-certificates jq openssh-server
 
 if id "$ADMIN_USER" &>/dev/null; then
   ok "usuário $ADMIN_USER já existe"
@@ -24,12 +25,18 @@ else
 fi
 usermod -aG sudo "$ADMIN_USER"
 
-if [[ $(passwd -S "$ADMIN_USER" | awk '{print $2}') != P ]]; then
+if [[ ${JARVIS_CI:-} != 1 && $(passwd -S "$ADMIN_USER" | awk '{print $2}') != P ]]; then
   log "defina a senha de $ADMIN_USER (usada pelo sudo; o login SSH continua só por chave)"
   passwd "$ADMIN_USER"
 fi
 
 home=$(getent passwd "$ADMIN_USER" | cut -d: -f6)
+if [[ ${JARVIS_CI:-} == 1 && ! -s /root/.ssh/authorized_keys ]]; then
+  # CI: VM descartável sem chave de root. Uma chave descartável satisfaz a checagem do 10-sistema.
+  install -d -m 700 /root/.ssh
+  ssh-keygen -q -t ed25519 -N "" -f /root/.ssh/ci_descartavel
+  cat /root/.ssh/ci_descartavel.pub >>/root/.ssh/authorized_keys
+fi
 [[ -s /root/.ssh/authorized_keys ]] || die "root não tem chave SSH. No seu computador: ssh-copy-id root@IP_DA_VPS"
 install -d -m 700 -o "$ADMIN_USER" -g "$ADMIN_USER" "$home/.ssh"
 if [[ ! -s $home/.ssh/authorized_keys ]]; then
@@ -41,11 +48,12 @@ fi
 install -D -m 644 "$PROVISION_DIR/vars.sh" /etc/jarvis/vars.sh
 
 key="$home/.ssh/id_ed25519_github"
-if [[ ! -f $key ]]; then
+if [[ ${JARVIS_CI:-} != 1 && ! -f $key ]]; then
   runuser -u "$ADMIN_USER" -- ssh-keygen -q -t ed25519 -N "" -C "$ADMIN_USER@$(hostname)-jarvis" -f "$key"
 fi
 
 if [[ ! -d $JARVIS_DIR/.git ]]; then
+  [[ ${JARVIS_CI:-} != 1 ]] || die "modo CI: o repo precisa já estar em $JARVIS_DIR"
   echo
   echo "Adicione esta chave como Deploy Key, marcando 'Allow write access', em:"
   echo "  https://github.com/$GITHUB_SLUG/settings/keys/new"
@@ -56,7 +64,7 @@ if [[ ! -d $JARVIS_DIR/.git ]]; then
   install -d -m 750 -o "$ADMIN_USER" -g "$ADMIN_USER" "$JARVIS_DIR"
   runuser -u "$ADMIN_USER" -- env \
     GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new" \
-    git clone "$GITHUB_REPO" "$JARVIS_DIR"
+    git clone -b prod "$GITHUB_REPO" "$JARVIS_DIR"
   runuser -u "$ADMIN_USER" -- git -C "$JARVIS_DIR" config core.sshCommand "ssh -i $key -o IdentitiesOnly=yes"
 fi
 chmod 750 "$JARVIS_DIR"
