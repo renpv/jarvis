@@ -21,6 +21,16 @@ sysctl kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true
 ss -tuln
 fim
 
+grupo "ambiente global igual ao de uma VPS"
+# A imagem do runner grava dezenas de variáveis em /etc/environment (PATH com /home/runner,
+# XDG_RUNTIME_DIR=/run/user/1001, XDG_CONFIG_HOME…), e o PAM injeta esse arquivo em TODA sessão,
+# inclusive na sessão systemd do hermes — o Docker rootless dele tentava usar /run/user/1001.
+# Numa VPS Ubuntu esse arquivo só tem o PATH; deixamos o runner igual (o original fica guardado).
+sudo cp /etc/environment /etc/environment.runner
+echo 'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"' |
+  sudo tee /etc/environment >/dev/null
+fim
+
 grupo "grupo do admin"
 # No runner do GitHub, o grupo primário do usuário pode não ter o nome dele. Os scripts usam
 # "$ADMIN:$ADMIN" (ex.: /opt/jarvis e /var/backups/jarvis), então o grupo precisa existir e conter o admin.
