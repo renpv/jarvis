@@ -50,8 +50,16 @@ done
 [[ -S /run/user/$uid/bus ]] || die "a sessão systemd do usuário $HERMES_USER não subiu"
 
 docker_log() {
-  warn "o Docker rootless do $HERMES_USER não subiu; últimas linhas do journal:"
-  as_hermes journalctl --user --unit docker.service -n 40 --no-pager >&2 || true
+  warn "o Docker rootless do $HERMES_USER não subiu; diagnóstico:"
+  {
+    id "$HERMES_USER"
+    loginctl show-user "$HERMES_USER" -p UID -p RuntimePath -p Linger -p State || true
+    ls -ld /run/user/* || true
+    echo "--- ambiente da sessão systemd do $HERMES_USER:"
+    as_hermes systemctl --user show-environment || true
+    echo "--- journal do docker.service (usuário):"
+    as_hermes journalctl --user --unit docker.service -n 40 --no-pager || true
+  } >&2
 }
 if [[ ! -f $HERMES_DIR/.config/systemd/user/docker.service ]]; then
   log "configurando o Docker rootless do $HERMES_USER"
