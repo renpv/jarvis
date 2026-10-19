@@ -139,3 +139,11 @@ O artefato `lynis` de cada run do portão 2 lista sugestões de endurecimento (`
 4. Suba `ci/lynis-minimo.txt` para o novo valor menos 2.
 
 O mínimo **só sobe**.
+
+## 10. Depois de apagar um branch com segredo de teste
+
+Se um branch com um segredo falso (ex.: o aceite do critério 2) foi apagado no GitHub, o clone local ainda guarda `origin/<branch>`. O gitleaks do `make ci` (e do pre-push) varre essas referências e acusa o vazamento. Para limpar:
+
+```bash
+git fetch --prune origin
+```
