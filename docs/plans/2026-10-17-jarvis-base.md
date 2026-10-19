@@ -428,7 +428,7 @@ Esperado: FAIL, porque `bin/jarvis` e `.env.example` ainda não existem. **Os do
 ```bash
 # jarvis:env — modelo do .env do Hermes. NUNCA commite este arquivo preenchido.
 # O .env real fica SOMENTE na VPS: /var/lib/hermes/.hermes/.env (permissão 600).
-# Para editar na VPS:  sudo nano /var/lib/hermes/.hermes/.env
+# Para editar na VPS:  sudo -u hermes nano /var/lib/hermes/.hermes/.env
 # Para conferir:       jarvis check-env
 
 # ── Modelo (OpenAI) ────────────────────────────────────────────────
@@ -2590,7 +2590,7 @@ O agente acompanha cada passo: pede a saída dos comandos de verificação, ajud
 
 ```bash
 scp -r provision root@IP_DA_VPS:/root/
-ssh root@IP_DA_VPS 'bash /root/provision/00-bootstrap.sh'
+ssh -t root@IP_DA_VPS 'bash /root/provision/00-bootstrap.sh'
 ```
 
 Quando o script mostrar a chave, cadastre-a em `https://github.com/renpv/jarvis/settings/keys/new` com **Allow write access** e pressione Enter.
@@ -2708,7 +2708,7 @@ Esperado na primeira vez: um aviso pedindo para preencher o `.env`.
 - [ ] **Passo 3 [RENATO]: preencher o `.env` direto na VPS**
 
 ```bash
-sudo nano /var/lib/hermes/.hermes/.env
+sudo -u hermes nano /var/lib/hermes/.hermes/.env
 ```
 
 Preencha as 5 variáveis, com `TELEGRAM_HOME_CHANNEL` igual ao seu ID. Depois rode `sudo provision/40-hermes.sh` de novo e `jarvis check-env`.

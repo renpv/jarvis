@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# jarvis-backup — cópia do estado do Hermes. Rodado como root pelo jarvis-backup.timer (03:00).
+# Para o Hermes por alguns segundos durante a cópia para o banco (state.db) ficar consistente.
+# Retenção: 7 diários + 4 semanais (domingo). Restauração: docs/operacao.md.
+set -euo pipefail
+
+# shellcheck source=provision/vars.sh
+source "${JARVIS_VARS:-/etc/jarvis/vars.sh}"
+SRC_DIR=${SRC_DIR:-$HERMES_DIR}
+BACKUP_DIR=${BACKUP_DIR:-/var/backups/jarvis}
+BACKUP_GROUP=${BACKUP_GROUP:-$ADMIN_USER}
+SERVICE_CTL=${SERVICE_CTL:-systemctl}
+KEEP_DAILY=${KEEP_DAILY:-7}
+KEEP_WEEKLY=${KEEP_WEEKLY:-4}
+SERVICES=(hermes-gateway hermes-dashboard)
+
+today=${JARVIS_DATE:-$(date +%F)}
+kind=daily
+if [[ $(date -d "$today" +%u) == 7 ]]; then kind=weekly; fi
+out="$BACKUP_DIR/jarvis-$kind-$today.tar.zst"
+
+install -d -m 750 -g "$BACKUP_GROUP" "$BACKUP_DIR"
+
+active=()
+for s in "${SERVICES[@]}"; do
+  if $SERVICE_CTL is-active --quiet "$s"; then active+=("$s"); fi
+done
+restart_services() {
+  if ((${#active[@]})); then $SERVICE_CTL start "${active[@]}"; fi
+}
+trap restart_services EXIT
+if ((${#active[@]})); then $SERVICE_CTL stop "${active[@]}"; fi
+
+items=()
+for d in .hermes apps notas; do
+  if [[ -e $SRC_DIR/$d ]]; then items+=("$d"); fi
+done
+((${#items[@]})) || { echo "jarvis-backup: nada para copiar em $SRC_DIR" >&2; exit 1; }
+
+# rc 1 = "arquivo mudou durante a leitura" (um app rodando gravou algo): o backup segue válido.
+rc=0
+tar -C "$SRC_DIR" --exclude='.hermes/logs' --warning=no-file-changed -I 'zstd -q -T0 -10' \
+  -cf "$out.tmp" "${items[@]}" || rc=$?
+if ((rc > 1)); then
+  rm -f "$out.tmp"
+  echo "jarvis-backup: tar falhou (código $rc)" >&2
+  exit "$rc"
+fi
+mv "$out.tmp" "$out"
+chgrp "$BACKUP_GROUP" "$out"
+chmod 640 "$out"
+
+trap - EXIT
+restart_services
+
+prune() {
+  local k=$1 keep=$2
+  shopt -s nullglob
+  local files=("$BACKUP_DIR"/jarvis-"$k"-*.tar.zst)
+  shopt -u nullglob
+  ((${#files[@]} > keep)) || return 0
+  printf '%s\n' "${files[@]}" | sort -r | tail -n +$((keep + 1)) | xargs -r rm -f --
+}
+prune daily "$KEEP_DAILY"
+prune weekly "$KEEP_WEEKLY"
+
+echo "$out"

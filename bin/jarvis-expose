@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# jarvis-expose NOME PORTA — publica um app do Hermes em http://NOME.jarvis.lan (só na VPN).
+# jarvis-unexpose NOME     — remove a publicação.
+#
+# É o ÚNICO comando que o usuário hermes pode rodar como root (via sudoers). Por isso:
+#   - valida nome e porta com regras estritas;
+#   - gera o arquivo do Caddy a partir de um modelo fixo (o hermes não escreve Caddy);
+#   - como root, ignora o ambiente: caminhos fixos, nada configurável de fora;
+#   - se o Caddy rejeitar a configuração, desfaz e mantém a anterior.
+set -euo pipefail
+
+DOMAIN=jarvis.lan
+PORT_MIN=8100
+PORT_MAX=8199
+RESERVED=(hermes www dns vpn admin)
+
+die() { echo "jarvis-expose: $*" >&2; exit 1; }
+
+if [[ $EUID -eq 0 ]]; then
+  APPS_DIR=/etc/caddy/apps.d
+  validate() {
+    # shellcheck disable=SC1091  # arquivo só existe na VPS
+    (set -a; . /etc/caddy/secrets.env; set +a
+     caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile) >/dev/null 2>&1
+  }
+  reload() { systemctl reload caddy; }
+else
+  # Modo de teste (sem root): caminhos e ações vêm do ambiente.
+  APPS_DIR=${APPS_DIR:?defina APPS_DIR para testar sem root}
+  validate() { eval "${VALIDATE_CMD:-true}"; }
+  reload() { eval "${RELOAD_CMD:-true}"; }
+fi
+
+check_name() {
+  [[ $1 =~ ^[a-z]([a-z0-9-]{0,29}[a-z0-9])$ ]] ||
+    die "nome inválido: '$1' (use 2 a 31 letras minúsculas, números ou hífen; comece com letra)"
+  local r
+  for r in "${RESERVED[@]}"; do
+    [[ $1 != "$r" ]] || die "nome reservado: $1"
+  done
+}
+
+check_port() {
+  if ! [[ $1 =~ ^[1-9][0-9]*$ ]] || (($1 < PORT_MIN || $1 > PORT_MAX)); then
+    die "porta inválida: '$1' (use $PORT_MIN a $PORT_MAX)"
+  fi
+}
+
+expose() {
+  local name=$1 port=$2 target backup="" tmp other
+  check_name "$name"
+  check_port "$port"
+  target="$APPS_DIR/$name.caddy"
+  for other in "$APPS_DIR"/*.caddy; do
+    [[ -e $other && $other != "$target" ]] || continue
+    if grep -q "127\.0\.0\.1:$port\$" "$other"; then
+      die "porta $port já usada por $(basename "$other" .caddy)"
+    fi
+  done
+  if [[ -f $target ]]; then
+    backup=$(mktemp)
+    cp "$target" "$backup"
+  fi
+  tmp=$(mktemp)
+  printf 'http://%s.%s {\n\treverse_proxy 127.0.0.1:%s\n}\n' "$name" "$DOMAIN" "$port" >"$tmp"
+  install -m 644 "$tmp" "$target"
+  rm -f "$tmp"
+  if ! validate; then
+    if [[ -n $backup ]]; then mv "$backup" "$target"; else rm -f "$target"; fi
+    die "o Caddy rejeitou a configuração; nada foi alterado"
+  fi
+  rm -f "$backup"
+  reload
+  echo "publicado: http://$name.$DOMAIN -> 127.0.0.1:$port (só com a VPN ligada)"
+}
+
+unexpose() {
+  local name=$1 target
+  check_name "$name"
+  target="$APPS_DIR/$name.caddy"
+  [[ -f $target ]] || die "$name não está publicado"
+  rm -f "$target"
+  validate || die "o Caddy rejeitou a configuração após remover $name"
+  reload
+  echo "removido: http://$name.$DOMAIN"
+}
+
+case $(basename "$0") in
+  jarvis-unexpose)
+    [[ $# -eq 1 ]] || die "uso: jarvis-unexpose NOME"
+    unexpose "$1"
+    ;;
+  *)
+    [[ $# -eq 2 ]] || die "uso: jarvis-expose NOME PORTA"
+    expose "$1" "$2"
+    ;;
+esac
