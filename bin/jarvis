@@ -211,7 +211,7 @@ cmd_check() {
   if token_ok; then
     _item 0 "token de deploy ($DEPLOY_TOKEN_FILE)"
   else
-    _item 1 "token de deploy ausente ou sem modo 600: $DEPLOY_TOKEN_FILE (docs/aprendizado/80-ci-e-fluxo-git.md)"
+    _item 1 "token de deploy ausente ou sem modo 600: $DEPLOY_TOKEN_FILE (Actions: Read-only; docs/aprendizado/80-ci-e-fluxo-git.md)"
   fi
   return "$CHECK_FAIL"
 }
@@ -251,7 +251,7 @@ sugestoes() {
 }
 
 cmd_deploy() {
-  local repo=$JARVIS_REPO head sha json name st reply mudou falhas=() exigidos
+  local repo=$JARVIS_REPO head sha json run_id name st reply mudou falhas=() exigidos
   preflight cmd:git cmd:curl cmd:jq
   token_ok || die "token de deploy ausente ou sem modo 600: $DEPLOY_TOKEN_FILE — crie conforme docs/aprendizado/80-ci-e-fluxo-git.md"
   [[ $(git -C "$repo" symbolic-ref --short -q HEAD) == "$DEPLOY_BRANCH" ]] ||
@@ -279,11 +279,20 @@ cmd_deploy() {
   exigidos=$(git -C "$repo" show "HEAD:ci/testes-exigidos.txt" 2>/dev/null | grep -vE '^[[:space:]]*(#|$)' || true)
   [[ -n $exigidos ]] || die "ci/testes-exigidos.txt ausente ou vazio no HEAD local — deploy recusado"
 
-  json=$(api_get "$GITHUB_API/repos/$GITHUB_SLUG/commits/$sha/check-runs?per_page=100") ||
-    die "não consegui consultar os testes no GitHub (token válido? rede?)"
+  # Tokens fine-grained não leem check runs (só GitHub Apps); a API de Actions (permissão
+  # "Actions: Read-only") traz os jobs. Só vale a execução do portao-2.yml disparada por PUSH
+  # no prod neste commit exato — um job de mesmo nome vindo de outro workflow não conta.
+  json=$(api_get "$GITHUB_API/repos/$GITHUB_SLUG/actions/workflows/portao-2.yml/runs?branch=$DEPLOY_BRANCH&event=push&head_sha=$sha&per_page=20") ||
+    die "não consegui consultar as execuções no GitHub (token com 'Actions: Read-only'? rede?)"
+  run_id=$(jq -r --arg sha "$sha" --arg b "$DEPLOY_BRANCH" \
+    '[.workflow_runs[] | select(.head_sha == $sha and .event == "push" and .head_branch == $b)]
+     | sort_by(.created_at) | last | .id // empty' <<<"$json")
+  [[ -n $run_id ]] || die "nenhuma execução do portao-2 (push no $DEPLOY_BRANCH) para ${sha:0:7} — aguarde o CI ou veja a aba Actions"
+  json=$(api_get "$GITHUB_API/repos/$GITHUB_SLUG/actions/runs/$run_id/jobs?filter=latest&per_page=100") ||
+    die "não consegui consultar os jobs da execução $run_id"
   while IFS= read -r name; do
     st=$(jq -r --arg n "$name" \
-      '[.check_runs[] | select(.name == $n)] | sort_by(.started_at) | last
+      '[.jobs[] | select(.name == $n)] | sort_by(.started_at) | last
        | if . == null then "ausente" else "\(.status)/\(.conclusion // "-")" end' <<<"$json")
     [[ $st == completed/success ]] || falhas+=("$name: $st")
   done <<<"$exigidos"
