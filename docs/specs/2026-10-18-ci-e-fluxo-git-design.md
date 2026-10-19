@@ -21,6 +21,8 @@ Adotar o **GitLab flow** com dois branches permanentes, `main` e `prod`. Nada ch
 | C3 | Continuar no **GitHub gratuito**; a trava fica na VPS | GitHub Pro (US$ 4/mês); migrar para GitLab.com | Repos privados no plano gratuito não têm proteção de branch (API: "Upgrade to GitHub Pro"). Os runners do GitHub são VMs completas, o que permite testar o provisionamento |
 | C4 | Testes rápidos no PR para `main`; testes profundos (integração e auditoria) no PR e no push para `prod` | Tudo em todo PR | Feedback rápido no dia a dia; o custo maior só no lançamento |
 | C5 | Ferramentas open source, versões fixas e checksum verificado | Ações de terceiros por tag | Cadeia de suprimentos do CI |
+| C6 | Hooks locais: pre-commit (segredos + shellcheck) e **pre-push** (portão 1 local + recusa push direto em `main`/`prod`) | Só CI remoto | Erro descoberto em segundos; o hook faz o papel da proteção de branch que o GitHub gratuito não oferece |
+| C7 | **Preflight** no início de cada script: valida variáveis e ambiente e lista todos os problemas **antes** de alterar qualquer coisa | Falhar no meio do script | Evita uma VPS meio configurada por causa de um valor errado em `vars.sh` |
 
 ## 3. Fluxo de branches
 
@@ -141,14 +143,84 @@ O arquivo `ci/testes-exigidos.txt` lista um nome de check run por linha:
 |---|---|
 | `make test` | como hoje: lint + bats |
 | `make ci` | portão 1 completo: `make test`, actionlint, zizmor e gitleaks no histórico local. Ferramentas ausentes ⇒ erro, com a instrução para instalar |
-| `make hooks` | instala `.git/hooks/pre-commit`, que roda `gitleaks git --staged` (ou `gitleaks protect --staged`, conforme a versão fixada) e `shellcheck` nos `.sh` do commit |
+| `make hooks` | instala os dois hooks abaixo, versionados em `ci/hooks/` (o `core.hooksPath` aponta para lá; nada é copiado para `.git/hooks`) |
 
-## 8. Custos e limites
+### 7.1 Pre-commit — `ci/hooks/pre-commit`
+
+1. `gitleaks git --staged` (ou `gitleaks protect --staged`, conforme a versão fixada): bloqueia segredos no que está sendo commitado.
+2. `shellcheck` nos `.sh` e nos arquivos de `bin/` do commit.
+3. Ferramenta ausente ⇒ falha, com a instrução de instalação. Não passa em silêncio.
+
+### 7.2 Pre-push — `ci/hooks/pre-push`
+
+1. **Recusa push para `main` e `prod`.** O hook lê os refs de destino no stdin e aceita só `refs/heads/feat/*` e `refs/heads/fix/*`. Para os outros, mostra a mensagem "use um PR" e sai com 1.
+2. **Roda `make ci`** (portão 1 completo) no commit que vai ser enviado. Se falhar, o push não acontece.
+3. **Exceção consciente:** `git push --no-verify` pula o hook. O procedimento fica em `docs/aprendizado/80-ci-e-fluxo-git.md`, só para emergência. O CI e o `jarvis deploy` continuam valendo.
+4. A lista de padrões permitidos fica numa variável no topo do hook (`ALLOWED_REFS`), coberta por teste.
+
+## 8. Validação prévia (preflight)
+
+**Objetivo:** nenhum script altera a máquina se alguma variável ou pré-condição estiver errada, e o usuário vê **todos** os problemas de uma vez.
+
+### 8.1 Funções em `provision/lib.sh`
+
+- `check_vars` — valida o `vars.sh`, acumula os erros numa lista e devolve quantos encontrou:
+
+| Variável | Regra |
+|---|---|
+| `ADMIN_USER`, `HERMES_USER` | `^[a-z_][a-z0-9_-]{0,31}$`, diferentes entre si e diferentes de `root` |
+| `HERMES_DIR`, `JARVIS_DIR` | caminho absoluto, sem `..` e sem espaço |
+| `GITHUB_SLUG` | `^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$` |
+| `GITHUB_REPO` | começa com `git@github.com:` ou `https://github.com/` |
+| `TIMEZONE` | existe `/usr/share/zoneinfo/$TIMEZONE` |
+| `DOMAIN` | rótulos DNS válidos, com pelo menos um ponto |
+| `WG_IF` | `^[a-z][a-z0-9]{0,14}$` |
+| `WG_PORT`, `DASHBOARD_PORT`, `APP_PORT_MIN`, `APP_PORT_MAX` | inteiros de 1 a 65535, com `APP_PORT_MIN < APP_PORT_MAX` e `DASHBOARD_PORT` fora da faixa de apps |
+| `WG_NET` | três octetos válidos, ex.: `10.8.0` |
+| `WG_SERVER_IP` | IPv4 válido dentro de `WG_NET.0/24` |
+| `WG_ENDPOINT` | vazio ou IPv4/nome DNS válido |
+
+- `check_env_os` — confere `ID=ubuntu` e `VERSION_ID=24.04` em `/etc/os-release`. O caminho aceita sobrescrita para os testes.
+- `check_commands CMD...` — lista os comandos ausentes.
+- `preflight [REQUISITOS...]` — chama `check_vars`, mais os requisitos do script, e **morre listando todos os problemas** se houver algum. Requisitos:
+  - `os`
+  - `root`
+  - `sudo-admin` (rodando com sudo pelo `ADMIN_USER`)
+  - `cmd:<nome>`
+  - `ci-env:<VAR>` (exigida só em modo CI)
+  - `iface:<if>` (interface com o IP esperado)
+  - `user:<nome>` (usuário existe)
+
+### 8.2 Uso em cada script (primeira linha útil, antes de qualquer alteração)
+
+| Script | Requisitos |
+|---|---|
+| `00-bootstrap.sh` | `os root` |
+| `10-sistema.sh` | `os root sudo-admin` (e `authorized_keys` do admin não vazio) |
+| `20-wireguard.sh` | `os root` |
+| `30-dns-caddy.sh` | `os root iface:$WG_IF ci-env:JARVIS_DASHBOARD_PASSWORD` |
+| `40-hermes.sh` | `os root` |
+| `50-docker-rootless.sh` | `os root user:$HERMES_USER` |
+| `60-backup.sh` | `os root user:$HERMES_USER` |
+| `jarvis deploy` | `check_vars`, mais: repo git em `JARVIS_DIR`, token legível com modo 600, `cmd:curl cmd:jq cmd:git` |
+| `jarvis apply`/`import`/`diff` | `check_vars`, mais `user:$HERMES_USER` (fora dos testes) |
+
+### 8.3 `jarvis check`
+
+Roda `check_vars`, o SO, os comandos esperados, `jarvis check-env` e a existência do token de deploy. Mostra ✅/❌ por item, **não altera nada** e sai com 0 só se tudo passar.
+
+### 8.4 Testes
+
+`tests/preflight.bats` traz um teste por regra da tabela 8.1, com um valor inválido. Também cobre:
+- vários erros juntos aparecem todos na saída;
+- `preflight` falha **antes** de qualquer efeito (verificado com um script de teste que cria um arquivo-sentinela depois do preflight, e o arquivo não aparece).
+
+## 9. Custos e limites
 
 - **Minutos de Actions:** o plano gratuito tem 2.000 min/mês em repos privados. Estimativa: ~250 min/mês (40 × 3 min + 8 × 15 min).
 - **Integração:** a VM do runner difere da VPS real (kernel, rede). Um job `integracao` verde **não substitui** as verificações da Fase B; ele pega regressões nos scripts.
 
-## 9. Riscos
+## 10. Riscos
 
 | Risco | Mitigação |
 |---|---|
@@ -159,8 +231,10 @@ O arquivo `ci/testes-exigidos.txt` lista um nome de check run por linha:
 | Token de leitura vazado | só lê resultados de testes de um repo; fica fora do alcance do `hermes` |
 | `integracao` instável (rede, espelhos do apt) | um re-run manual é permitido; falha persistente é tratada como bug |
 | Diferença entre a VM do runner e a VPS | documentada; a Fase B continua obrigatória |
+| Valor errado em `vars.sh` deixa a VPS meio configurada | `preflight` valida tudo antes de qualquer alteração |
+| Push direto em `main`/`prod` por engano | hook pre-push recusa; se for pulado com `--no-verify`, o CI e o deploy ainda barram |
 
-## 10. Critérios de aceite
+## 11. Critérios de aceite
 
 1. Um PR para `main` com um `.sh` com erro de shellcheck fica vermelho em `lint`.
 2. Um PR com um token falso num arquivo fica vermelho em `secrets`.
@@ -170,3 +244,6 @@ O arquivo `ci/testes-exigidos.txt` lista um nome de check run por linha:
 6. Na VPS, `jarvis deploy` com o commit do `prod` com checks verdes avança e sugere as ações certas. Com algum check vermelho ou ausente, recusa sem alterar o `HEAD`.
 7. `make hooks` instalado: um `git commit` contendo um token falso é bloqueado localmente.
 8. O Dependabot abre um PR de atualização de ação, e ele passa pelo portão 1.
+9. `make hooks` instalado: `git push origin main` é recusado localmente com a mensagem "use um PR"; `git push` de um `feat/*` com teste quebrado é recusado; com tudo verde, passa.
+10. Com `TIMEZONE=America/Fortalesa` e `WG_PORT=99999` no `vars.sh`, qualquer script de `provision/` sai com erro listando **os dois** problemas, sem alterar nada na máquina.
+11. `jarvis check` numa VPS saudável mostra tudo ✅ e sai com 0. Sem o token de deploy, mostra ❌ nesse item e sai com 1.
