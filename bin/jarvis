@@ -36,6 +36,9 @@ BACKUP_DIR=${BACKUP_DIR:-/var/backups/jarvis}
 LOCAL_BACKUP_DIR=${LOCAL_BACKUP_DIR:-$HOME/backups/jarvis}
 VPS_SSH=${VPS_SSH:-$ADMIN_USER@$WG_SERVER_IP}
 DEPLOY_TOKEN_FILE=${DEPLOY_TOKEN_FILE:-$HOME/.config/jarvis/github-token}
+GITHUB_API=${GITHUB_API:-https://api.github.com}
+DEPLOY_BRANCH=${DEPLOY_BRANCH:-prod}
+JARVIS_HTTP=${JARVIS_HTTP:-}
 
 SRC="$JARVIS_REPO/hermes"
 APPLIED="$JARVIS_STATE/applied"
@@ -213,6 +216,97 @@ cmd_check() {
   return "$CHECK_FAIL"
 }
 
+# api_get URL — GET autenticado na API do GitHub. O token vai por um descritor de arquivo
+# (-H @…), nunca na linha de comando, onde outros usuários poderiam vê-lo com `ps`.
+api_get() {
+  if [[ -n $JARVIS_HTTP ]]; then
+    $JARVIS_HTTP "$1"
+    return
+  fi
+  curl -fsSL --max-time 30 \
+    -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28" \
+    -H @<(printf 'Authorization: Bearer %s\n' "$(<"$DEPLOY_TOKEN_FILE")") "$1"
+}
+
+# sugestoes ARQUIVOS — o que rodar depois do deploy, conforme o que mudou (spec, seção 5).
+sugestoes() {
+  local f s todos=0
+  declare -A quer=()
+  while read -r f; do
+    case $f in
+      hermes/*) quer[apply]=1 ;;
+      provision/lib.sh | provision/vars.sh) todos=1 ;;
+      provision/10-* | system/apt/* | system/fail2ban/* | system/ssh/*) quer[10-sistema]=1 ;;
+      provision/20-* | system/wireguard/* | bin/jarvis-peer) quer[20-wireguard]=1 ;;
+      provision/30-* | system/dnsmasq/* | system/caddy/* | system/systemd/caddy-* | system/systemd/dnsmasq-*) quer[30-dns-caddy]=1 ;;
+      provision/40-* | system/systemd/hermes-*) quer[40-hermes]=1 ;;
+      provision/50-* | system/sudoers/* | bin/jarvis-expose) quer[50-docker-rootless]=1 ;;
+      provision/60-* | system/systemd/jarvis-backup* | bin/jarvis-backup) quer[60-backup]=1 ;;
+    esac
+  done <<<"$1"
+  for s in 10-sistema 20-wireguard 30-dns-caddy 40-hermes 50-docker-rootless 60-backup; do
+    if ((todos)) || [[ -n ${quer[$s]:-} ]]; then echo "  sudo provision/$s.sh"; fi
+  done
+  if [[ -n ${quer[apply]:-} ]]; then echo "  jarvis apply"; fi
+}
+
+cmd_deploy() {
+  local repo=$JARVIS_REPO head sha json name st reply mudou falhas=() exigidos
+  token_ok || die "token de deploy ausente ou sem modo 600: $DEPLOY_TOKEN_FILE — crie conforme docs/aprendizado/80-ci-e-fluxo-git.md"
+  [[ $(git -C "$repo" symbolic-ref --short -q HEAD) == "$DEPLOY_BRANCH" ]] ||
+    die "$repo não está no branch $DEPLOY_BRANCH (git -C $repo switch $DEPLOY_BRANCH)"
+  if ! git -C "$repo" diff --quiet || ! git -C "$repo" diff --cached --quiet; then
+    die "há mudanças locais em $repo — se vieram de 'jarvis import', leve-as por um branch feat/* e PR (docs/operacao.md)"
+  fi
+
+  git -C "$repo" fetch -q origin "$DEPLOY_BRANCH"
+  head=$(git -C "$repo" rev-parse HEAD)
+  sha=$(git -C "$repo" rev-parse "origin/$DEPLOY_BRANCH")
+  if [[ $sha == "$head" ]]; then
+    ok "nada novo em $DEPLOY_BRANCH (${head:0:7})"
+    return 0
+  fi
+  git -C "$repo" merge-base --is-ancestor "$head" "$sha" ||
+    die "histórico do $DEPLOY_BRANCH foi reescrito (${head:0:7} não é ancestral de ${sha:0:7}); investigue antes de continuar"
+
+  exigidos=$(git -C "$repo" show "HEAD:ci/testes-exigidos.txt" 2>/dev/null | grep -vE '^[[:space:]]*(#|$)' || true)
+  [[ -n $exigidos ]] || die "ci/testes-exigidos.txt ausente ou vazio no HEAD local — deploy recusado"
+
+  json=$(api_get "$GITHUB_API/repos/$GITHUB_SLUG/commits/$sha/check-runs?per_page=100") ||
+    die "não consegui consultar os testes no GitHub (token válido? rede?)"
+  while IFS= read -r name; do
+    st=$(jq -r --arg n "$name" \
+      '[.check_runs[] | select(.name == $n)] | sort_by(.started_at) | last
+       | if . == null then "ausente" else "\(.status)/\(.conclusion // "-")" end' <<<"$json")
+    [[ $st == completed/success ]] || falhas+=("$name: $st")
+  done <<<"$exigidos"
+  if ((${#falhas[@]})); then
+    printf '  - %s\n' "${falhas[@]}" >&2
+    die "testes não aprovados no commit ${sha:0:7} — deploy recusado"
+  fi
+  ok "todos os testes exigidos passaram em ${sha:0:7}"
+
+  log "commits que vão entrar"
+  git -C "$repo" log --oneline "$head..$sha"
+  git -C "$repo" diff --stat "$head" "$sha"
+  read -r -p "Aplicar na VPS? [s/N] " reply || reply=""
+  if [[ $reply != s ]]; then
+    ok "cancelado; nada mudou"
+    return 0
+  fi
+
+  mudou=$(git -C "$repo" diff --name-only "$head" "$sha")
+  git -C "$repo" merge -q --ff-only "$sha"
+  ok "/opt/jarvis em ${sha:0:7}"
+
+  log "próximos passos (você decide; scripts de root não rodam sozinhos)"
+  sugestoes "$mudou"
+  if grep -q '^hermes/' <<<"$mudou"; then
+    read -r -p "Rodar 'jarvis apply' agora? [s/N] " reply || reply=""
+    if [[ $reply == s ]]; then cmd_apply; fi
+  fi
+}
+
 cmd_status() {
   local s
   log "serviços"
@@ -260,6 +354,7 @@ case ${1:-} in
   import) cmd_import ;;
   check-env) cmd_check_env ;;
   check) cmd_check ;;
+  deploy) cmd_deploy ;;
   status) cmd_status ;;
   update) cmd_update ;;
   backup) shift; cmd_backup "$@" ;;
