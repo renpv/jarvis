@@ -79,3 +79,18 @@ setup() {
   grep -q 'DPkg::Lock::Timeout=' "$SANDBOX/apt-args"
   grep -q 'pacote' "$SANDBOX/apt-args"
 }
+
+@test "as_hermes roda com ambiente limpo (nada do admin vaza, ex.: XDG_CONFIG_HOME)" {
+  mkdir -p "$SANDBOX/bin"
+  # sudo falso: descarta "-u USUÁRIO" e executa o resto, para observar o ambiente entregue
+  printf '#!/usr/bin/env bash\nshift 2\nexec "$@"\n' > "$SANDBOX/bin/sudo"
+  chmod +x "$SANDBOX/bin/sudo"
+  HERMES_USER=$(id -un) HERMES_DIR="$SANDBOX/hermes"
+  export XDG_CONFIG_HOME=/home/outro/.config SEGREDO_DO_ADMIN=x
+  PATH="$SANDBOX/bin:$PATH" run as_hermes /usr/bin/env
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"XDG_CONFIG_HOME"* ]]
+  [[ "$output" != *"SEGREDO_DO_ADMIN"* ]]
+  [[ "$output" == *"HOME=$SANDBOX/hermes"* ]]
+  [[ "$output" == *"HERMES_HOME=$SANDBOX/hermes/.hermes"* ]]
+}
