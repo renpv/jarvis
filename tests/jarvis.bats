@@ -5,7 +5,7 @@ setup() {
   export JARVIS_REPO="$SANDBOX/repo"
   export HERMES_HOME="$SANDBOX/live/.hermes"
   export JARVIS_STATE="$SANDBOX/state"
-  export HERMES_USER="$(id -un)" HERMES_GROUP="$(id -gn)"
+  export HERMES_USER="$(id -un)" HERMES_GROUP="$(id -gn)" ADMIN_USER=admin-teste
   export SUDO="" HSUDO="" SYSTEMCTL=":"
   mkdir -p "$JARVIS_REPO/hermes/skills/jarvis/exemplo" "$HERMES_HOME" "$JARVIS_STATE"
   cp -r "$REPO_ROOT/provision" "$JARVIS_REPO/"
@@ -201,4 +201,13 @@ setup() {
   printf 'model:\n  api_key: ${OPENAI_API_KEY}\n  key_env: OPENAI_API_KEY\nmax_tokens: 4096\n' > "$HERMES_HOME/config.yaml"
   run "$JARVIS" import
   [ "$status" -eq 0 ]
+}
+
+@test "apply/import/diff param no preflight com vars.sh inválido" {
+  for c in apply import diff; do
+    WG_PORT=99999 run "$JARVIS" $c
+    [ "$status" -ne 0 ] || { echo "$c passou"; return 1; }
+    [[ "$output" == *"WG_PORT"* ]]
+  done
+  [ ! -e "$HERMES_HOME/config.yaml" ]
 }

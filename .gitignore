@@ -13,3 +13,6 @@ backups/
 
 # Espaço de trabalho do executor do plano
 .superpowers/
+
+# Ferramentas do CI instaladas localmente (make ferramentas)
+.ci-bin/

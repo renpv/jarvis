@@ -72,3 +72,10 @@ EOF
   [[ "$output" == *"celular"*"10.8.0.2"* ]]
   [[ "$output" == *"notebook"*"10.8.0.3"* ]]
 }
+
+@test "servidor fora do .1: o primeiro dispositivo não colide com o IP do servidor" {
+  export WG_SERVER_IP=10.8.0.2
+  run "$PEER" add celular
+  [ "$status" -eq 0 ]
+  grep -qx "AllowedIPs = 10.8.0.3/32" "$SANDBOX/wg/wg0.conf"
+}

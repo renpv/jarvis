@@ -1,0 +1,9 @@
+# Check runs que o `jarvis deploy` exige verdes no commit do prod (um por linha, nome exato da API).
+# O deploy lê esta lista da versão JÁ IMPLANTADA na VPS: um commit não afrouxa as próprias exigências.
+portao-1 / lint
+portao-1 / unit
+portao-1 / secrets
+portao-1 / workflow-security
+origem
+secrets-historico
+integracao

@@ -4,11 +4,11 @@
 set -euo pipefail
 # shellcheck source=provision/lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
-require_root
-id "$HERMES_USER" &>/dev/null || die "rode 40-hermes.sh antes"
+preflight os root "user:$HERMES_USER"
 
 log "Docker (repositório oficial)"
-if ! command -v dockerd-rootless-setuptool.sh >/dev/null; then
+# Se o repositório do Docker já estiver configurado (ex.: runner do CI), só completa os pacotes.
+if [[ ! -f /etc/apt/sources.list.d/docker.list ]]; then
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
   # shellcheck disable=SC1091  # arquivo do sistema
@@ -16,8 +16,24 @@ if ! command -v dockerd-rootless-setuptool.sh >/dev/null; then
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $codename stable" \
     >/etc/apt/sources.list.d/docker.list
   apt_get update -q
-  apt_install docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras docker-compose-plugin uidmap
 fi
+apt_install docker-ce docker-ce-cli containerd.io docker-ce-rootless-extras docker-compose-plugin uidmap
+
+# Ubuntu 24.04 restringe user namespaces sem privilégio; o rootlesskit precisa de um perfil AppArmor.
+if [[ -d /etc/apparmor.d ]] && ! grep -rqs rootlesskit /etc/apparmor.d; then
+  cat >/etc/apparmor.d/usr.bin.rootlesskit <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+
+"/usr/bin/rootlesskit" flags=(unconfined) {
+  userns,
+
+  include if exists <local/usr.bin.rootlesskit>
+}
+EOF
+  apparmor_parser -r /etc/apparmor.d/usr.bin.rootlesskit
+fi
+
 # Sem o Docker de root: só o rootless do hermes.
 systemctl disable --now docker.service docker.socket containerd.service 2>/dev/null || true
 

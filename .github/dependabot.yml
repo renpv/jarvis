@@ -1,0 +1,12 @@
+# Atualiza as ações dos workflows (fixadas por SHA). Os PRs vão para o main e passam pelo portão 1.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+    commit-message:
+      prefix: ci

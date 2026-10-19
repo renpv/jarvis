@@ -4,8 +4,7 @@
 set -euo pipefail
 # shellcheck source=provision/lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
-require_root
-ip -4 addr show "$WG_IF" 2>/dev/null | grep -q "inet $WG_SERVER_IP/" || die "rode 20-wireguard.sh antes"
+preflight os root "iface:$WG_IF" ci-env:JARVIS_DASHBOARD_PASSWORD
 
 log "dnsmasq"
 # A configuração entra ANTES do pacote: assim o dnsmasq já sobe sem brigar com o systemd-resolved.
@@ -28,8 +27,12 @@ if ! command -v caddy >/dev/null; then
 fi
 
 if [[ ! -f /etc/caddy/secrets.env ]]; then
-  log "crie a senha do dashboard (usuário: $ADMIN_USER). Ela não aparece na tela."
-  hash=$(caddy hash-password)
+  if [[ ${JARVIS_CI:-} == 1 ]]; then
+    hash=$(caddy hash-password --plaintext "$JARVIS_DASHBOARD_PASSWORD")
+  else
+    log "crie a senha do dashboard (usuário: $ADMIN_USER). Ela não aparece na tela."
+    hash=$(caddy hash-password)
+  fi
   [[ $hash == \$2* ]] || die "não consegui gerar o hash da senha"
   (umask 077 && printf "DASHBOARD_USER='%s'\nDASHBOARD_HASH='%s'\n" "$ADMIN_USER" "$hash" >/etc/caddy/secrets.env)
 fi

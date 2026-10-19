@@ -1,0 +1,68 @@
+# Portão 2 — profundo. Roda em PR para o prod e em todo push no prod.
+# O resultado no commit final do prod é o que o `jarvis deploy` consulta na VPS.
+name: portao-2
+
+on:
+  pull_request:
+    branches: [prod]
+  push:
+    branches: [prod]
+
+permissions:
+  contents: read
+
+jobs:
+  portao-1:
+    # A sintaxe $/ (jul/2026) ainda não é validada pelo actionlint fixado; reavaliar ao atualizar as ferramentas.
+    uses: ./.github/workflows/portao-1.yml # zizmor: ignore[self-repository]
+
+  origem:
+    name: origem
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: prod só recebe o que já está no main
+        env:
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: ci/origem.sh
+
+  secrets-historico:
+    name: secrets-historico
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Ferramentas
+        run: ci/instalar-ferramentas.sh "$RUNNER_TEMP/ci" gitleaks
+      - name: gitleaks em todo o histórico
+        run: |
+          export PATH="$RUNNER_TEMP/ci/bin:$PATH"
+          gitleaks git --redact --no-banner .
+
+  integracao:
+    name: integracao
+    needs: [portao-1, origem]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Provisionar 00→60 duas vezes nesta VM descartável e auditar
+        run: ci/integracao.sh
+      - name: Relatório do Lynis
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lynis
+          path: ${{ runner.temp }}/lynis-report.dat
+          if-no-files-found: ignore
+          retention-days: 30

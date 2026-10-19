@@ -1,0 +1,3 @@
+# Índice mínimo de endurecimento do Lynis no job integracao. Só sobe, nunca desce.
+# Começa em 0; depois do primeiro run, ajuste para (índice medido - 2) — Tarefa 12.
+0

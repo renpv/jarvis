@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# pre-commit — barra segredos e erros de shellcheck ANTES de virar commit.
+# Ativado por `make hooks` (core.hooksPath = ci/hooks). Pular: git commit --no-verify (só emergência).
+set -euo pipefail
+top=$(git rev-parse --show-toplevel)
+export PATH="$top/.ci-bin/bin:$PATH"
+
+falta=()
+for c in gitleaks shellcheck; do command -v "$c" >/dev/null || falta+=("$c"); done
+if ((${#falta[@]})); then
+  echo "pre-commit: faltando ${falta[*]} — rode: make ferramentas" >&2
+  exit 1
+fi
+
+if ! gitleaks git --staged --redact --no-banner "$top"; then
+  echo "pre-commit: possível segredo no commit — remova (segredos vão no .env da VPS)" >&2
+  exit 1
+fi
+
+arquivos=()
+while IFS= read -r f; do
+  [[ -f $top/$f && ! -L $top/$f ]] || continue
+  if [[ $f == *.sh || $f == bin/* || $f == ci/hooks/* ]]; then arquivos+=("$top/$f"); fi
+done < <(git diff --cached --name-only --diff-filter=ACM)
+if ((${#arquivos[@]})); then
+  shellcheck -x "${arquivos[@]}" || { echo "pre-commit: corrija os avisos do shellcheck" >&2; exit 1; }
+fi

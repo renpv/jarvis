@@ -9,6 +9,8 @@ roda **no computador**.
 | Para… | Comando |
 |---|---|
 | Ver se está tudo de pé | `jarvis status` |
+| Conferir tudo sem mudar nada | `jarvis check` |
+| Trazer novidades do prod (só com testes verdes) | `jarvis deploy` |
 | Ver o que o Hermes/dashboard mudou | `jarvis diff` |
 | Trazer essas mudanças para o repo | `jarvis import` → `git diff` → `git commit` → `git push` |
 | Aplicar o repo no Hermes | `jarvis apply` |
@@ -18,16 +20,19 @@ roda **no computador**.
 
 ## 2. Mudar a configuração (`config.yaml`, `SOUL.md`, skills)
 
-1. No computador: edite em `~/dev/jarvis/hermes/`, faça commit e `git push`.
+1. No computador: branch `feat/<assunto>`, edite em `~/dev/jarvis/hermes/`, commit, `git push -u origin HEAD`, PR para o `main` e depois PR `main` → `prod` (veja [80-ci-e-fluxo-git.md](aprendizado/80-ci-e-fluxo-git.md)).
 2. Na VPS:
    ```bash
-   cd /opt/jarvis && git pull && jarvis apply
+   jarvis deploy   # confere os testes, mostra o que entra e oferece o jarvis apply
    ```
 3. Se o `apply` recusar, o Hermes tem mudanças que não estão no repo: rode `jarvis diff` e decida
    entre `jarvis import` (manter) ou `jarvis apply --force` (descartar).
 
-Mudanças nos scripts de `provision/` ou em `system/`: `git pull` e rode de novo o script do
-assunto (ex.: `sudo provision/30-dns-caddy.sh`). Eles são idempotentes.
+Mudanças nos scripts de `provision/` ou em `system/`: o `jarvis deploy` lista qual script rodar de
+novo (ex.: `sudo provision/30-dns-caddy.sh`). Eles são idempotentes.
+
+**Mudança feita no dashboard:** `jarvis import` → branch `feat/hermes-<assunto>` → push → `git switch prod`
+→ PR. Até o release chegar, não rode `jarvis apply` (detalhes em 80-ci-e-fluxo-git.md, item 6).
 
 ## 3. Novo dispositivo na VPN
 

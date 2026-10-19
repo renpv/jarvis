@@ -4,7 +4,7 @@
 set -euo pipefail
 # shellcheck source=provision/lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
-require_root
+preflight os root
 
 apt_install wireguard wireguard-tools qrencode
 install -d -m 700 /etc/wireguard /etc/wireguard/clients
