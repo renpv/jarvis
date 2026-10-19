@@ -147,6 +147,8 @@ check_vars() {
   _is_ipv4 "$WG_NET.0" || e+=("WG_NET inválida: '$WG_NET' (três octetos, ex.: 10.8.0)")
   if _is_ipv4 "$WG_SERVER_IP"; then
     [[ ${WG_SERVER_IP%.*} == "$WG_NET" ]] || e+=("WG_SERVER_IP ($WG_SERVER_IP) fora da rede $WG_NET.0/24")
+    # .0 é a rede e .255 o broadcast da /24: não servem como endereço do servidor.
+    ((${WG_SERVER_IP##*.} >= 1 && ${WG_SERVER_IP##*.} <= 254)) || e+=("WG_SERVER_IP ($WG_SERVER_IP) precisa terminar entre .1 e .254")
   else
     e+=("WG_SERVER_IP inválido: '$WG_SERVER_IP'")
   fi

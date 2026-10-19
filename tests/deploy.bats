@@ -9,6 +9,7 @@ setup() {
   mkdir -p "$WORK/ci" "$WORK/hermes" "$WORK/bin"
   cp -r "$REPO_ROOT/provision" "$WORK/"
   printf 'portao-1 / lint\nintegracao\n' > "$WORK/ci/testes-exigidos.txt"
+  cp "$REPO_ROOT/ci/origem.sh" "$WORK/ci/"
   echo v1 > "$WORK/hermes/SOUL.md"
   echo v1 > "$WORK/bin/jarvis-expose"
   git -C "$WORK" add -A && git -C "$WORK" commit -qm inicial
@@ -175,4 +176,34 @@ verdes() { checks "portao-1 / lint|completed|success" "integracao|completed|succ
   run "$JARVIS" deploy
   [ "$status" -ne 0 ]
   [[ "$output" == *"token"* ]]
+}
+
+@test "arquivo novo não versionado (ex.: skill do jarvis import) também bloqueia" {
+  novo_commit docs/x.md
+  verdes
+  mkdir -p "$JARVIS_REPO/hermes/skills/jarvis/nova"
+  echo nova > "$JARVIS_REPO/hermes/skills/jarvis/nova/SKILL.md"
+  run "$JARVIS" deploy
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"mudanças locais"* ]]
+}
+
+@test "commit no prod que não está no main: recusa mesmo com testes verdes" {
+  antes=$(git -C "$JARVIS_REPO" rev-parse HEAD)
+  echo direto >> "$WORK/docs-direto.md"
+  git -C "$WORK" add -A && git -C "$WORK" commit -qm "direto no prod"
+  git -C "$WORK" push -q origin HEAD:prod
+  verdes
+  run bash -c "printf 's\n' | '$JARVIS' deploy"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"direto no prod"* ]]
+  [ "$(git -C "$JARVIS_REPO" rev-parse HEAD)" = "$antes" ]
+}
+
+@test "deploy roda o preflight (GITHUB_SLUG inválido)" {
+  novo_commit docs/x.md
+  verdes
+  GITHUB_SLUG=invalido run bash -c "printf 'n\n' | '$JARVIS' deploy"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"GITHUB_SLUG"* ]]
 }

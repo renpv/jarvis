@@ -21,8 +21,10 @@ next_host() {
   while read -r n; do
     if ((n > max)); then max=$n; fi
   done < <(sed -nE "s|^AllowedIPs = ${WG_NET//./\\.}\.([0-9]+)/32$|\1|p" "$CONF")
-  ((max < 254)) || die "não há mais endereços livres em $WG_NET.0/24"
-  echo $((max + 1))
+  local next=$((max + 1))
+  if ((next == ${WG_SERVER_IP##*.})); then next=$((next + 1)); fi   # nunca o IP do servidor
+  ((next <= 254)) || die "não há mais endereços livres em $WG_NET.0/24"
+  echo "$next"
 }
 
 cmd_add() {

@@ -35,3 +35,11 @@ setup() {
   EVENT=pull_request HEAD_REF=main run "$ORIGEM"
   [ "$status" -eq 0 ]
 }
+
+@test "merge com alteração extra no prod (merge maligno): falha" {
+  git switch -q main && echo 3 >> a && git commit -qam "c3"
+  git switch -q prod && git merge -q --no-ff --no-commit main && echo extra > maligno && git add maligno && git commit -qm "release: c3" && git switch -q main
+  EVENT=push run "$ORIGEM"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"merge"* ]]
+}

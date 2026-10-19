@@ -131,7 +131,7 @@ O arquivo `ci/testes-exigidos.txt` lista um nome de check run por linha:
 - **Ações:** fixadas por SHA completo, com a versão num comentário. `.github/dependabot.yml` (ecossistema `github-actions`) roda semanalmente e abre PRs para o `main`.
 - **Ferramentas de `ci/ferramentas.txt`:** revisão manual mensal (procedimento em `docs/aprendizado/80-ci-e-fluxo-git.md`).
 - **Permissões:**
-  - `permissions: contents: read` no topo de cada workflow; o job `integracao` também tem `actions: read` (para os artefatos);
+  - `permissions: contents: read` no topo de cada workflow (o upload de artefatos não precisa de `actions: read`);
   - nunca usar `pull_request_target`;
   - `persist-credentials: false` no checkout;
   - nenhum segredo no CI.
@@ -227,6 +227,8 @@ Roda `check_vars`, o SO, os comandos esperados, `jarvis check-env` e a existênc
 | Merge com teste vermelho (o GitHub gratuito não bloqueia) | `jarvis deploy` não traz commit sem todos os checks exigidos verdes |
 | Push direto no `prod` | job `origem` fica vermelho → deploy recusa |
 | Commit que remove exigências do próprio CI | o deploy lê `testes-exigidos.txt` do `HEAD` já implantado |
+| Push direto no `prod` que também altera `ci/origem.sh` ou os workflows | o `jarvis deploy` roda a regra do `origem` **localmente**, com o `ci/origem.sh` já implantado, antes de consultar os testes; inclui "merge maligno" (merge com alteração extra) |
+| **Risco aceito:** alguém com acesso de escrita ao repo forja um check run com o mesmo nome (ex.: workflow com `checks: write` num branch) | a trava protege contra acidentes, não contra quem já pode escrever no repo. Hoje só Renato tem escrita; o `hermes` não tem nenhum acesso ao repo `jarvis`. Reforço futuro possível: validar a origem dos checks via API de Actions (token com *Actions: read*) |
 | Ação ou ferramenta comprometida | fixação por SHA e checksum; zizmor; Dependabot; permissões mínimas; sem segredos no CI |
 | Token de leitura vazado | só lê resultados de testes de um repo; fica fora do alcance do `hermes` |
 | `integracao` instável (rede, espelhos do apt) | um re-run manual é permitido; falha persistente é tratada como bug |

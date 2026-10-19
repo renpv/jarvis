@@ -21,4 +21,10 @@ if [[ -n $extras ]]; then
   falha "commits no prod que não estão no main (siga feat/* → main → prod):
 $extras"
 fi
+# --no-merges acima não enxerga alterações feitas DENTRO de um merge ("merge maligno").
+# Num release legítimo (prod ⊆ main), o merge fica idêntico ao lado do main (2º pai).
+while read -r m; do
+  git diff --quiet "$m^2" "$m" ||
+    falha "merge $(git log -1 --format='%h %s' "$m") traz alterações que não estão no main"
+done < <(git rev-list --merges "$MAIN_REF..$TARGET")
 echo "origem: ok — tudo no prod veio do main"

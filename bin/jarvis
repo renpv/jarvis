@@ -252,14 +252,15 @@ sugestoes() {
 
 cmd_deploy() {
   local repo=$JARVIS_REPO head sha json name st reply mudou falhas=() exigidos
+  preflight cmd:git cmd:curl cmd:jq
   token_ok || die "token de deploy ausente ou sem modo 600: $DEPLOY_TOKEN_FILE — crie conforme docs/aprendizado/80-ci-e-fluxo-git.md"
   [[ $(git -C "$repo" symbolic-ref --short -q HEAD) == "$DEPLOY_BRANCH" ]] ||
     die "$repo não está no branch $DEPLOY_BRANCH (git -C $repo switch $DEPLOY_BRANCH)"
-  if ! git -C "$repo" diff --quiet || ! git -C "$repo" diff --cached --quiet; then
+  if [[ -n $(git -C "$repo" status --porcelain) ]]; then
     die "há mudanças locais em $repo — se vieram de 'jarvis import', leve-as por um branch feat/* e PR (docs/operacao.md)"
   fi
 
-  git -C "$repo" fetch -q origin "$DEPLOY_BRANCH"
+  git -C "$repo" fetch -q origin "$DEPLOY_BRANCH" main
   head=$(git -C "$repo" rev-parse HEAD)
   sha=$(git -C "$repo" rev-parse "origin/$DEPLOY_BRANCH")
   if [[ $sha == "$head" ]]; then
@@ -268,6 +269,12 @@ cmd_deploy() {
   fi
   git -C "$repo" merge-base --is-ancestor "$head" "$sha" ||
     die "histórico do $DEPLOY_BRANCH foi reescrito (${head:0:7} não é ancestral de ${sha:0:7}); investigue antes de continuar"
+
+  # Regra do GitLab flow conferida AQUI, com o ci/origem.sh já implantado (código confiável):
+  # um push direto no prod que também alterasse o origem.sh não passa por esta checagem.
+  [[ -x $repo/ci/origem.sh ]] || die "ci/origem.sh ausente no HEAD local — deploy recusado"
+  (cd "$repo" && EVENT=push MAIN_REF=origin/main TARGET="$sha" ci/origem.sh) ||
+    die "o $DEPLOY_BRANCH tem conteúdo que não veio do main — deploy recusado"
 
   exigidos=$(git -C "$repo" show "HEAD:ci/testes-exigidos.txt" 2>/dev/null | grep -vE '^[[:space:]]*(#|$)' || true)
   [[ -n $exigidos ]] || die "ci/testes-exigidos.txt ausente ou vazio no HEAD local — deploy recusado"

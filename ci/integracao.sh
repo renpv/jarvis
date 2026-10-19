@@ -14,6 +14,20 @@ TOOLS="$RUNNER_TEMP/ci"
 grupo() { echo "::group::$*"; }
 fim() { echo "::endgroup::"; }
 
+grupo "diagnóstico do runner"
+id
+ls -l /etc/apt/sources.list.d
+sysctl kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || true
+ss -tuln
+fim
+
+grupo "grupo do admin"
+# No runner do GitHub, o grupo primário do usuário pode não ter o nome dele. Os scripts usam
+# "$ADMIN:$ADMIN" (ex.: /opt/jarvis e /var/backups/jarvis), então o grupo precisa existir e conter o admin.
+getent group "$ADMIN" >/dev/null || sudo groupadd "$ADMIN"
+sudo usermod -aG "$ADMIN" "$ADMIN"
+fim
+
 grupo "ferramentas"
 "$REPO/ci/instalar-ferramentas.sh" "$TOOLS" bats lynis
 fim
@@ -70,7 +84,8 @@ sudo wg show wg0 peers | grep -q .
 fim
 
 grupo "auditoria"
-PATH="$TOOLS/bin:$PATH" bats /opt/jarvis/tests/integracao
+# sudo -u: sessão nova, que já enxerga o grupo acrescentado acima.
+sudo -u "$ADMIN" -H env PATH="$TOOLS/bin:$PATH" bats /opt/jarvis/tests/integracao
 fim
 
 grupo "Lynis"

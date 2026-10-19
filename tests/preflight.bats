@@ -79,7 +79,11 @@ invalido() {   # invalido VAR VALOR TRECHO_ESPERADO
   invalido WG_NET "10.8.300" WG_NET
   WG_NET=10.8.0
   invalido WG_SERVER_IP "10.9.0.1" WG_SERVER_IP
-  WG_SERVER_IP=10.8.0.255; run check_vars; [ "$status" -eq 0 ]
+  WG_SERVER_IP=10.8.0.254; run check_vars; [ "$status" -eq 0 ]
+  invalido WG_SERVER_IP "10.8.0.255" WG_SERVER_IP
+  WG_SERVER_IP=10.8.0.1
+  invalido WG_SERVER_IP "10.8.0.0" WG_SERVER_IP
+  WG_SERVER_IP=10.8.0.1
   invalido WG_SERVER_IP "10.8.0.256" WG_SERVER_IP
 }
 
