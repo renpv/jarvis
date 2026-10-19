@@ -2529,7 +2529,7 @@ Seções obrigatórias:
 
 Seções obrigatórias, com os comandos exatos:
 1. **Dia a dia:** `jarvis status`, `jarvis diff`, `jarvis import`, `jarvis apply`, `jarvis hermes <cmd>` (ex.: `jarvis hermes cron list`).
-2. **Mudar a configuração:** o fluxo ① → ② → ③ → ④ (editar no computador, `git push`, na VPS `cd /opt/jarvis && git pull && jarvis apply`).
+2. **Mudar a configuração:** o fluxo ① → ② → ③ → ④ (editar no computador, `git push`, na VPS `jarvis deploy   # oferece o jarvis apply quando hermes/ mudou`).
 3. **Novo dispositivo na VPN:** `sudo jarvis-peer add NOME`. Android: escanear o QR. Windows: `sudo cat /etc/wireguard/clients/NOME.conf` → no app WireGuard, "Adicionar túnel vazio" → colar. **Nunca colar essa config num chat.**
 4. **Atualizar:** `jarvis update` (Hermes). O sistema se atualiza sozinho em segurança. Atualizações não automáticas: `sudo apt update && sudo apt full-upgrade` uma vez por mês.
 5. **Backup:**
@@ -2577,6 +2577,13 @@ Esperado: `gh repo view renpv/jarvis --json visibility -q .visibility` imprime `
 
 # FASE B — na VPS (guiada; Renato executa)
 
+> **Fluxo Git (desde o plano 2026-10-19-ci-e-fluxo-git):** onde esta fase diz "Commit e push",
+> leia: branch `feat/<assunto>` → commit → `git push -u origin HEAD` → PR para o `main`. Docs não
+> precisam de release. Mudanças que a VPS precisa (scripts, `hermes/`) vão também no PR `main` → `prod`,
+> e chegam à VPS com `jarvis deploy`. Commits feitos **na VPS** (depois de `jarvis import`) seguem a
+> receita de `docs/aprendizado/80-ci-e-fluxo-git.md`, item 6. Logo depois do bootstrap (Tarefa 12),
+> crie o token de deploy (mesmo documento, item 5) e rode `jarvis check`.
+
 O agente acompanha cada passo: pede a saída dos comandos de verificação, ajuda a diagnosticar e, ao fim de cada tarefa, escreve o guia de aprendizado correspondente com o que **realmente** aconteceu (saídas reais, com valores sensíveis mascarados). **Nenhum segredo passa pelo chat:** se uma saída contiver chave ou token, Renato a omite.
 
 ### Tarefa 12: VPS limpa, `00-bootstrap` e `10-sistema`
@@ -2590,7 +2597,7 @@ O agente acompanha cada passo: pede a saída dos comandos de verificação, ajud
 
 ```bash
 scp -r provision root@IP_DA_VPS:/root/
-ssh -t root@IP_DA_VPS 'bash /root/provision/00-bootstrap.sh'
+ssh -t root@IP_DA_VPS 'bash /root/provision/00-bootstrap.sh'   # clona o branch prod
 ```
 
 Quando o script mostrar a chave, cadastre-a em `https://github.com/renpv/jarvis/settings/keys/new` com **Allow write access** e pressione Enter.
@@ -2637,7 +2644,7 @@ git add docs/aprendizado/10-servidor.md && git commit -m "docs: guia do servidor
 - [ ] **Passo 1 [RENATO]: WireGuard**
 
 ```bash
-cd /opt/jarvis && git pull && sudo provision/20-wireguard.sh
+jarvis deploy; cd /opt/jarvis && sudo provision/20-wireguard.sh
 ```
 
 Esperado: "WireGuard ativo em 10.8.0.1, porta 51820/udp".
@@ -2700,7 +2707,7 @@ git commit -m "docs: guias de WireGuard, DNS e Caddy" && git push
 - [ ] **Passo 2 [RENATO]: instalar o Hermes**
 
 ```bash
-cd /opt/jarvis && git pull && sudo provision/40-hermes.sh
+jarvis deploy; cd /opt/jarvis && sudo provision/40-hermes.sh
 ```
 
 Esperado na primeira vez: um aviso pedindo para preencher o `.env`.
@@ -2786,7 +2793,7 @@ git add hermes/config.yaml && git commit -m "hermes: aprovações, deny list, fu
 - [ ] **Passo 7 [RENATO]: aplicar e conferir**
 
 ```bash
-cd /opt/jarvis && git pull && jarvis apply
+jarvis deploy   # oferece o jarvis apply quando hermes/ mudou
 jarvis hermes config check
 jarvis hermes doctor
 jarvis status
@@ -2828,7 +2835,7 @@ git add docs/aprendizado/40-hermes.md && git commit -m "docs: guia de instalaç�
 - [ ] **Passo 1 [RENATO]: rodar o script**
 
 ```bash
-cd /opt/jarvis && git pull && sudo provision/50-docker-rootless.sh
+jarvis deploy; cd /opt/jarvis && sudo provision/50-docker-rootless.sh
 ```
 
 Esperado: "Docker rootless ativo; hermes só tem sudo para jarvis-expose/unexpose".
@@ -2878,7 +2885,7 @@ git add docs/aprendizado/50-docker-rootless-e-apps.md && git commit -m "docs: gu
 - [ ] **Passo 1 [RENATO]: instalar o backup**
 
 ```bash
-cd /opt/jarvis && git pull && sudo provision/60-backup.sh
+jarvis deploy; cd /opt/jarvis && sudo provision/60-backup.sh
 ```
 
 Esperado: "backup em /var/backups/jarvis/jarvis-…tar.zst; próximo: …03:00…".

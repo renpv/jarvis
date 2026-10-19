@@ -25,6 +25,11 @@ rodando numa VPS própria. Conversa pelo Telegram e por um dashboard acessível 
 - `bin/` — ferramentas: `jarvis` (apply/diff/import/status...), `jarvis-expose`, `jarvis-peer`, `jarvis-backup`.
 - `tests/` — testes (`make test`).
 
+## Fluxo de trabalho
+
+`feat/<assunto>` → PR para `main` (portão 1) → PR `main` → `prod` (portão 2) → `jarvis deploy` na VPS.
+Primeira vez num clone: `make ferramentas && make hooks`. Detalhes: [docs/aprendizado/80-ci-e-fluxo-git.md](docs/aprendizado/80-ci-e-fluxo-git.md).
+
 ## Segredos
 
 Nenhum segredo entra no Git. O modelo está em [.env.example](.env.example); o `.env`
@@ -33,6 +38,7 @@ real existe só na VPS, em `/var/lib/hermes/.hermes/.env`.
 ## Testes
 
 ```bash
-brew install bats-core shellcheck   # uma vez
-make test
+make ferramentas   # uma vez: ferramentas fixadas por checksum em .ci-bin/
+make test          # lint + bats
+make ci            # o portão 1 inteiro, igual ao GitHub
 ```
