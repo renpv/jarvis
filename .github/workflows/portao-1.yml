@@ -1,0 +1,80 @@
+# Portão 1 — rápido. Roda em PR para o main e é chamado pelo portão 2 (PR e push no prod).
+name: portao-1
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Ferramentas (versões fixas, checksum conferido)
+        run: ci/instalar-ferramentas.sh "$RUNNER_TEMP/ci" shellcheck actionlint
+      - name: shellcheck, bash -n e actionlint
+        run: |
+          export PATH="$RUNNER_TEMP/ci/bin:$PATH"
+          make lint
+          actionlint
+
+  unit:
+    name: unit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Ferramentas
+        run: ci/instalar-ferramentas.sh "$RUNNER_TEMP/ci" bats shellcheck
+      - name: bats (inclui caddy validate via Docker e visudo)
+        run: |
+          export PATH="$RUNNER_TEMP/ci/bin:$PATH"
+          make unit
+
+  secrets:
+    name: secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Ferramentas
+        run: ci/instalar-ferramentas.sh "$RUNNER_TEMP/ci" gitleaks
+      - name: gitleaks (no PR, só os commits do PR)
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          export PATH="$RUNNER_TEMP/ci/bin:$PATH"
+          if [[ "$EVENT" == pull_request ]]; then
+            gitleaks git --redact --no-banner --log-opts="origin/${BASE_REF}..HEAD" .
+          else
+            gitleaks git --redact --no-banner .
+          fi
+
+  workflow-security:
+    name: workflow-security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Ferramentas
+        run: ci/instalar-ferramentas.sh "$RUNNER_TEMP/ci" zizmor
+      - name: zizmor
+        run: |
+          export PATH="$RUNNER_TEMP/ci/bin:$PATH"
+          zizmor --offline .
