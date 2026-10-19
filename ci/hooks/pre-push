@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# pre-push — 1) recusa push direto em main/prod (só feat/* e fix/*); 2) roda o portão 1 local.
+# Sem proteção de branch no GitHub gratuito, este hook faz esse papel na sua máquina.
+# Pular: git push --no-verify (só emergência; o CI e o jarvis deploy continuam valendo).
+set -euo pipefail
+
+ALLOWED_REFS='^refs/heads/(feat|fix)/[a-z0-9._-]+$'
+ZERO=0000000000000000000000000000000000000000
+read -r -a CMD <<<"${JARVIS_PREPUSH_CMD:-make ci}"
+
+verificar=0
+head=$(git rev-parse HEAD)
+while read -r _local_ref local_sha remote_ref _remote_sha; do
+  if ! [[ $remote_ref =~ $ALLOWED_REFS ]]; then
+    echo "pre-push: push direto para '${remote_ref#refs/heads/}' não é permitido — use um PR (a partir de um branch feat/* ou fix/*)" >&2
+    exit 1
+  fi
+  [[ $local_sha == "$ZERO" ]] && continue   # apagar um feat/* remoto
+  if [[ $local_sha != "$head" ]]; then
+    echo "pre-push: só envio o branch atual — faça checkout de '${remote_ref#refs/heads/}' antes" >&2
+    exit 1
+  fi
+  verificar=1
+done
+
+((verificar)) || exit 0
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "pre-push: há mudanças sem commit — faça commit ou stash antes (o make ci testaria outra coisa)" >&2
+  exit 1
+fi
+cd "$(git rev-parse --show-toplevel)"
+"${CMD[@]}" || { echo "pre-push: make ci falhou — corrija antes de enviar" >&2; exit 1; }
