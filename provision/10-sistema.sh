@@ -36,9 +36,12 @@ fi
 if ((JARVIS_CHANGED)); then systemctl try-reload-or-restart ssh; fi
 
 log "verificando"
-sshd -T | grep -qx 'permitrootlogin no' || die "PermitRootLogin não está 'no'"
-sshd -T | grep -qx 'passwordauthentication no' || die "PasswordAuthentication não está 'no'"
-ufw status | grep -q 'Status: active' || die "ufw inativo"
+# Saídas capturadas antes do grep -q: com pipefail, "cmd | grep -q" falha por SIGPIPE quando o grep
+# encerra cedo (aconteceu na VPS real com o sshd -T).
+sshd_cfg=$(sshd -T)
+grep -qx 'permitrootlogin no' <<<"$sshd_cfg" || die "PermitRootLogin não está 'no'"
+grep -qx 'passwordauthentication no' <<<"$sshd_cfg" || die "PasswordAuthentication não está 'no'"
+grep -q 'Status: active' <<<"$(ufw status)" || die "ufw inativo"
 systemctl is-active --quiet fail2ban || die "fail2ban inativo"
 [[ $(timedatectl show -p Timezone --value) == "$TIMEZONE" ]] || die "fuso não aplicado"
 ok "sistema pronto. Confirme em OUTRO terminal que 'ssh $ADMIN_USER@IP' funciona e 'ssh root@IP' é recusado."

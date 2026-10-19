@@ -190,7 +190,7 @@ preflight() {
         if [[ ${JARVIS_CI:-} == 1 && -z ${!v:-} ]]; then errs+=("modo CI: defina $v"); fi
         ;;
       iface:*)
-        ip -4 addr show "${r#iface:}" 2>/dev/null | grep -q "inet $WG_SERVER_IP/" ||
+        grep -q "inet $WG_SERVER_IP/" <<<"$(ip -4 addr show "${r#iface:}" 2>/dev/null)" ||
           errs+=("interface ${r#iface:} sem o IP $WG_SERVER_IP (rode 20-wireguard.sh antes)")
         ;;
       user:*) id "${r#user:}" &>/dev/null || errs+=("usuário inexistente: ${r#user:}") ;;

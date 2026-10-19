@@ -29,6 +29,6 @@ install -m 755 "$JARVIS_REPO/bin/jarvis-peer" /usr/local/sbin/jarvis-peer
 
 log "verificando"
 wg show "$WG_IF" >/dev/null || die "interface $WG_IF não subiu"
-ip -4 addr show "$WG_IF" | grep -q "inet $WG_SERVER_IP/" || die "$WG_IF sem o IP $WG_SERVER_IP"
+grep -q "inet $WG_SERVER_IP/" <<<"$(ip -4 addr show "$WG_IF")" || die "$WG_IF sem o IP $WG_SERVER_IP"
 ok "WireGuard ativo em $WG_SERVER_IP, porta $WG_PORT/udp"
 echo "Adicione dispositivos:  sudo jarvis-peer add celular   |   sudo jarvis-peer add notebook"
