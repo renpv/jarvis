@@ -5,6 +5,8 @@
 #   jarvis diff              mostra o que o Hermes/dashboard mudou em relação ao repo
 #   jarvis import            traz as mudanças do Hermes para o repo (revise e faça commit)
 #   jarvis check-env         confere se o .env do Hermes está completo
+#   jarvis check             valida vars.sh, sistema, comandos, .env e token (não altera nada)
+#   jarvis deploy            traz o prod do GitHub SÓ se todos os testes passaram (veja docs)
 #   jarvis status            serviços, dispositivos da VPN, portas públicas, último backup
 #   jarvis update            backup + atualização do Hermes + reinício
 #   jarvis backup            faz um backup agora (na VPS)
@@ -33,6 +35,7 @@ JARVIS_STATE=${JARVIS_STATE:-/var/lib/jarvis}
 BACKUP_DIR=${BACKUP_DIR:-/var/backups/jarvis}
 LOCAL_BACKUP_DIR=${LOCAL_BACKUP_DIR:-$HOME/backups/jarvis}
 VPS_SSH=${VPS_SSH:-$ADMIN_USER@$WG_SERVER_IP}
+DEPLOY_TOKEN_FILE=${DEPLOY_TOKEN_FILE:-$HOME/.config/jarvis/github-token}
 
 SRC="$JARVIS_REPO/hermes"
 APPLIED="$JARVIS_STATE/applied"
@@ -105,11 +108,13 @@ snapshot_from() {
 }
 
 cmd_diff() {
+  preflight "user:$HERMES_USER"
   export_live "$WORK/live"
   diff_tree "$SRC" "$WORK/live" && ok "sem diferenças"
 }
 
 cmd_apply() {
+  preflight "user:$HERMES_USER"
   local force=0 f
   if [[ ${1:-} == --force ]]; then force=1; fi
 
@@ -140,6 +145,7 @@ cmd_apply() {
 }
 
 cmd_import() {
+  preflight "user:$HERMES_USER"
   local stage="$WORK/stage" f hits
   export_live "$stage"
   for f in "${MANAGED_FILES[@]}"; do
@@ -175,6 +181,36 @@ cmd_check_env() {
   [[ $mode == 600 ]] || warn "$envf tem permissão $mode; o certo é 600 (sudo -u $HERMES_USER chmod 600 $envf)"
   ((${#missing[@]} == 0)) || die "preencha no .env: ${missing[*]}"
   ok ".env completo"
+}
+
+CHECK_FAIL=0
+_item() {   # _item 0|1 TEXTO
+  if [[ $1 == 0 ]]; then printf '  ✅ %s\n' "$2"; else printf '  ❌ %s\n' "$2"; CHECK_FAIL=1; fi
+}
+
+token_ok() {
+  [[ -r $DEPLOY_TOKEN_FILE && -s $DEPLOY_TOKEN_FILE && $(stat -c %a "$DEPLOY_TOKEN_FILE") == 600 ]]
+}
+
+cmd_check() {
+  local out c l falta=()
+  log "verificação (nada é alterado)"
+  if out=$(check_vars); then
+    _item 0 "variáveis do vars.sh"
+  else
+    _item 1 "variáveis do vars.sh:"
+    while IFS= read -r l; do printf '       - %s\n' "$l"; done <<<"$out"
+  fi
+  if check_os; then _item 0 "Ubuntu 24.04"; else _item 1 "sistema não é Ubuntu 24.04"; fi
+  for c in git curl jq sudo; do command -v "$c" >/dev/null || falta+=("$c"); done
+  if ((${#falta[@]} == 0)); then _item 0 "comandos: git curl jq sudo"; else _item 1 "comandos ausentes: ${falta[*]}"; fi
+  if (cmd_check_env) >/dev/null 2>&1; then _item 0 ".env do Hermes completo"; else _item 1 ".env do Hermes (detalhes: jarvis check-env)"; fi
+  if token_ok; then
+    _item 0 "token de deploy ($DEPLOY_TOKEN_FILE)"
+  else
+    _item 1 "token de deploy ausente ou sem modo 600: $DEPLOY_TOKEN_FILE (docs/aprendizado/80-ci-e-fluxo-git.md)"
+  fi
+  return "$CHECK_FAIL"
 }
 
 cmd_status() {
@@ -223,12 +259,13 @@ case ${1:-} in
   diff) cmd_diff ;;
   import) cmd_import ;;
   check-env) cmd_check_env ;;
+  check) cmd_check ;;
   status) cmd_status ;;
   update) cmd_update ;;
   backup) shift; cmd_backup "$@" ;;
   hermes) shift; as_hermes hermes "$@" ;;
   *)
-    sed -n '2,12p' "$SELF" | sed -E 's/^# ?//'
+    sed -n '2,14p' "$SELF" | sed -E 's/^# ?//'
     exit 2
     ;;
 esac
