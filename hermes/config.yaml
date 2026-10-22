@@ -2067,3 +2067,32 @@ auxiliary:
   title_generation:
     provider: openai-api
     model: gpt-5.4-mini
+
+# =============================================================================
+# Jarvis — ajustes de segurança (spec 2026-10-17, seção 6.3)
+# =============================================================================
+# Fuso usado no prompt do agente e no agendamento do cron.
+timezone: "America/Fortaleza"
+
+approvals:
+  # manual: todo comando que o Hermes classifica como perigoso espera aprovação
+  # (botões no Telegram). O padrão "smart" deixaria um LLM auxiliar decidir.
+  mode: manual
+  timeout: 300            # sem resposta em 5 min = negado (falha fechado)
+  cron_mode: deny         # rotinas agendadas nunca rodam comando perigoso sozinhas
+  # Bloqueados SEMPRE — mesmo com /yolo ou aprovação. Globs fnmatch, sem diferenciar maiúsculas.
+  deny:
+    - 'git push --force*'
+    - 'git push -f*'
+    - '*curl*|*sh*'
+    - '*wget*|*sh*'
+    - 'dd if=* of=/dev/*'
+    - 'rm -rf /'
+    - 'rm -rf /*'
+    - '*sudoers*'
+
+security:
+  redact_secrets: true    # mascara padrões de chave/token na saída das ferramentas e nos logs
+
+checkpoints:
+  enabled: true           # snapshot antes de operações destrutivas em arquivos
