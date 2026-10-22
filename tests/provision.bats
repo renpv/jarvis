@@ -39,3 +39,7 @@ load helpers
   run bash -c "grep -nE '\|[[:space:]]*grep -[a-zA-Z]*q' '$REPO_ROOT'/provision/*.sh '$REPO_ROOT'/bin/* '$REPO_ROOT'/ci/*.sh '$REPO_ROOT'/ci/hooks/* | grep -vE ':[0-9]+:[[:space:]]*#'"
   [ -z "$output" ] || { echo "$output"; return 1; }
 }
+
+@test "40 instala libatomic1 (o Node baixado pelo instalador do Hermes precisa dela)" {
+  grep -E '^apt_install ' "$REPO_ROOT/provision/40-hermes.sh" | grep -q libatomic1
+}
