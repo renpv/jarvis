@@ -101,7 +101,7 @@ O arquivo `ci/testes-exigidos.txt` lista um nome de check run por linha:
 
 1. `git fetch origin prod`. Se `HEAD` == `origin/prod`, mostra "nada novo" e sai com 0.
 2. Lê a lista de testes exigidos **do `HEAD` local** (a versão já implantada), nunca do commit que está chegando.
-3. Consulta `GET /repos/{GITHUB_SLUG}/commits/{sha}/check-runs` com o token de leitura. Cada nome exigido precisa existir, com `status: completed` e `conclusion: success`. Se faltar algum, ou se algum falhou ou ainda está rodando, sai com erro e lista quais.
+3. Consulta `GET /repos/{GITHUB_SLUG}/actions/workflows/portao-2.yml/runs?branch=prod&event=push&head_sha={sha}` e, da execução mais recente, `GET /actions/runs/{id}/jobs?filter=latest`. Cada nome exigido precisa existir como job, com `status: completed` e `conclusion: success`. Se faltar algum, ou se algum falhou ou ainda está rodando, sai com erro e lista quais. *(Revisado em 2026-10-19: a versão anterior usava a API de check runs, que tokens fine-grained não leem — só GitHub Apps. A API de Actions também garante a procedência: só valem jobs do `portao-2.yml` num push no `prod`.)*
 4. Mostra `git log --oneline HEAD..sha` e `git diff --stat HEAD sha` e pede `s/N`.
 5. `git merge --ff-only sha`. Se não for fast-forward, sai com erro: "histórico do prod foi reescrito; investigue".
 6. Mapeia os caminhos alterados para as ações seguintes e **imprime** a lista:
@@ -120,7 +120,7 @@ O arquivo `ci/testes-exigidos.txt` lista um nome de check run por linha:
    Scripts de root **não** são executados pelo deploy.
 
 7. **Token:** `/home/<admin>/.config/jarvis/github-token`, com modo 600.
-   - É fine-grained, só para o repo `renpv/jarvis`, com a permissão *Checks: read* (mais *Metadata: read*, obrigatória). Validade de 1 ano.
+   - É fine-grained, só para o repo `renpv/jarvis`, com a permissão *Actions: read* (mais *Metadata: read*, obrigatória). Validade de 1 ano.
    - Se faltar ou for inválido, o deploy sai com erro e mostra como criar.
 8. **Testável sem rede:** a URL da API (`GITHUB_API`) e o comando HTTP aceitam sobrescrita por variável de ambiente. Os testes bats usam um servidor falso (um script local que imprime JSON).
 
@@ -228,7 +228,7 @@ Roda `check_vars`, o SO, os comandos esperados, `jarvis check-env` e a existênc
 | Push direto no `prod` | job `origem` fica vermelho → deploy recusa |
 | Commit que remove exigências do próprio CI | o deploy lê `testes-exigidos.txt` do `HEAD` já implantado |
 | Push direto no `prod` que também altera `ci/origem.sh` ou os workflows | o `jarvis deploy` roda a regra do `origem` **localmente**, com o `ci/origem.sh` já implantado, antes de consultar os testes; inclui "merge maligno" (merge com alteração extra) |
-| **Risco aceito:** alguém com acesso de escrita ao repo forja um check run com o mesmo nome (ex.: workflow com `checks: write` num branch) | a trava protege contra acidentes, não contra quem já pode escrever no repo. Hoje só Renato tem escrita; o `hermes` não tem nenhum acesso ao repo `jarvis`. Reforço futuro possível: validar a origem dos checks via API de Actions (token com *Actions: read*) |
+| Check run forjado com o mesmo nome (ex.: workflow com `checks: write` num branch) | o deploy lê **jobs** só da execução do `portao-2.yml` num push no `prod` (API de Actions); check runs avulsos não contam. Quem tem escrita ainda pode alterar o próprio `portao-2.yml` num push direto — a regra do `origem` rodada localmente no deploy barra isso |
 | Ação ou ferramenta comprometida | fixação por SHA e checksum; zizmor; Dependabot; permissões mínimas; sem segredos no CI |
 | Token de leitura vazado | só lê resultados de testes de um repo; fica fora do alcance do `hermes` |
 | `integracao` instável (rede, espelhos do apt) | um re-run manual é permitido; falha persistente é tratada como bug |
