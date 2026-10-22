@@ -7,7 +7,8 @@ set -euo pipefail
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 preflight os root
 
-apt_install git curl xz-utils ca-certificates gh ripgrep jq sqlite3 zstd
+# libatomic1: o Node que o instalador do Hermes baixa precisa dela, e a imagem mínima do Ubuntu não traz.
+apt_install git curl xz-utils ca-certificates gh ripgrep jq sqlite3 zstd libatomic1
 
 if ! id "$HERMES_USER" &>/dev/null; then
   log "criando usuário de sistema $HERMES_USER"
