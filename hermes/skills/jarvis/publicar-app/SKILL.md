@@ -34,9 +34,11 @@ Quando Renato pedir para publicar, hospedar, "colocar no ar" ou deixar acessíve
          - "127.0.0.1:<porta>:<porta-interna>"
    ```
 3. Suba: `cd /var/lib/hermes/apps/<nome> && docker compose up -d --build`
+   - Se o terminal bloquear esse comando dizendo que parece iniciar um servidor/processo longo, rode o mesmo comando com `background=true` e `notify=true`, depois aguarde com `process_manage action=wait`; o `docker compose up -d` deve encerrar sozinho e deixar o container em segundo plano.
 4. Teste: `curl -fsS http://127.0.0.1:<porta>/ | head`
 5. Com o "sim" de Renato: `sudo jarvis-expose <nome> <porta>`
-6. Responda com `http://<nome>.jarvis.lan` e lembre que só abre com a VPN ligada.
+6. Verifique depois do expose: `test -f /etc/caddy/apps.d/<nome>.caddy` e `curl -fsS http://127.0.0.1:<porta>/`.
+7. Responda com `http://<nome>.jarvis.lan` e lembre que só abre com a VPN ligada.
 
 ## Remover
 1. `sudo jarvis-unexpose <nome>`
