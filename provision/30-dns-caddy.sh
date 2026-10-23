@@ -18,7 +18,8 @@ systemctl restart dnsmasq
 
 log "Caddy (repositório oficial)"
 if ! command -v caddy >/dev/null; then
-  apt_install debian-keyring debian-archive-keyring apt-transport-https gnupg curl
+  # Da receita oficial só precisamos de gnupg e curl: a chave do repositório vem pelo curl abaixo.
+  apt_install gnupg curl
   curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key |
     gpg --dearmor --yes -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
   curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt >/etc/apt/sources.list.d/caddy-stable.list

@@ -80,6 +80,16 @@ setup() {
   grep -q 'pacote' "$SANDBOX/apt-args"
 }
 
+@test "apt_get desiste de espelho travado e tenta de novo (um download preso já custou 14 min no CI)" {
+  mkdir -p "$SANDBOX/bin"
+  printf '#!/usr/bin/env bash\necho "$@" > "%s/apt-args"\n' "$SANDBOX" > "$SANDBOX/bin/apt-get"
+  chmod +x "$SANDBOX/bin/apt-get"
+  PATH="$SANDBOX/bin:$PATH" apt_get update
+  grep -q 'Acquire::http::Timeout=' "$SANDBOX/apt-args"
+  grep -q 'Acquire::https::Timeout=' "$SANDBOX/apt-args"
+  grep -q 'Acquire::Retries=' "$SANDBOX/apt-args"
+}
+
 @test "as_hermes roda com ambiente limpo (nada do admin vaza, ex.: XDG_CONFIG_HOME)" {
   mkdir -p "$SANDBOX/bin"
   # sudo falso: descarta "-u USUÁRIO" e executa o resto, para observar o ambiente entregue

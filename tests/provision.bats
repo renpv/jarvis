@@ -43,3 +43,8 @@ load helpers
 @test "40 instala libatomic1 (o Node baixado pelo instalador do Hermes precisa dela)" {
   grep -E '^apt_install ' "$REPO_ROOT/provision/40-hermes.sh" | grep -q libatomic1
 }
+
+@test "30-dns-caddy não instala pacotes sobrando da receita do Caddy (debian-keyring etc.)" {
+  run grep -nE 'debian-keyring|debian-archive-keyring|apt-transport-https' "$REPO_ROOT/provision/30-dns-caddy.sh"
+  [ "$status" -eq 1 ] || { echo "$output"; return 1; }
+}
