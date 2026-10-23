@@ -221,3 +221,27 @@ setup() {
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
   [[ "$output" == *"sem diferenças"* ]]
 }
+
+@test "import mescla: entra a mudança do Hermes e fica a mudança nova do repo (caso real de 2026-10-23)" {
+  printf 'model: a\ndeny: velho\nfim: 1\n' > "$JARVIS_REPO/hermes/config.yaml"
+  "$JARVIS" apply
+  # o deploy trouxe uma correção para o repo...
+  printf 'model: a\ndeny: novo\nfim: 1\n' > "$JARVIS_REPO/hermes/config.yaml"
+  # ...e o Hermes, sozinho, acrescentou estado de execução no arquivo vivo
+  printf 'model: a\ndeny: velho\nfim: 1\nonboarding: visto\n' > "$HERMES_HOME/config.yaml"
+  run "$JARVIS" import
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  grep -qx 'deny: novo' "$JARVIS_REPO/hermes/config.yaml"
+  grep -qx 'onboarding: visto' "$JARVIS_REPO/hermes/config.yaml"
+}
+
+@test "import com conflito (repo e Hermes mudaram a mesma linha): aborta e não toca o repo" {
+  printf 'model: a\nfim: 1\n' > "$JARVIS_REPO/hermes/config.yaml"
+  "$JARVIS" apply
+  printf 'model: repo\nfim: 1\n' > "$JARVIS_REPO/hermes/config.yaml"
+  printf 'model: hermes\nfim: 1\n' > "$HERMES_HOME/config.yaml"
+  run "$JARVIS" import
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"conflito"* ]]
+  [ "$(cat "$JARVIS_REPO/hermes/config.yaml")" = $'model: repo\nfim: 1' ]
+}

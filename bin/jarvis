@@ -163,8 +163,25 @@ cmd_import() {
     die "possível segredo encontrado em: ${hits//$stage\//hermes/} — tire do arquivo no Hermes (segredos vão no .env) e rode de novo"
   fi
 
+  # Mescla de três vias por arquivo: base = último apply/import, "nosso" = repo, "deles" = Hermes.
+  # Assim, uma mudança que acabou de chegar pelo deploy não é desfeita por uma mudança do Hermes.
+  local conflitos=() resultado
   for f in "${MANAGED_FILES[@]}"; do
-    if [[ -f $stage/$f ]]; then cp "$stage/$f" "$SRC/$f"; fi
+    [[ -f $stage/$f ]] || continue
+    resultado="$WORK/mesclado-$f"
+    if [[ -f $APPLIED/$f && -f $SRC/$f ]]; then
+      cp "$SRC/$f" "$resultado"
+      git merge-file -q -L repo -L "último apply" -L hermes "$resultado" "$APPLIED/$f" "$stage/$f" ||
+        conflitos+=("hermes/$f")
+    else
+      cp "$stage/$f" "$resultado"
+    fi
+  done
+  if ((${#conflitos[@]})); then
+    die "conflito ao importar ${conflitos[*]}: o repo e o Hermes mudaram as mesmas linhas. Nada foi alterado. Compare com 'jarvis diff', ajuste o repo à mão e rode 'jarvis apply --force'."
+  fi
+  for f in "${MANAGED_FILES[@]}"; do
+    if [[ -f $WORK/mesclado-$f ]]; then cp "$WORK/mesclado-$f" "$SRC/$f"; fi
   done
   if [[ -d $stage/$MANAGED_SKILLS ]]; then
     rm -rf "${SRC:?}/$MANAGED_SKILLS"
