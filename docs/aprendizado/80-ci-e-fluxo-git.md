@@ -108,6 +108,10 @@ git switch -c feat/hermes-<assunto> && git commit -am "hermes: <assunto>" && git
 git switch prod   # o /opt/jarvis volta ao prod; abra o PR para o main e depois o release
 ```
 
+O `jarvis import` faz uma **mescla de três vias** (base = último apply/import, repo, Hermes): uma mudança que acabou de chegar pelo deploy não é desfeita pela do Hermes. Se os dois mudaram a mesma linha, ele para com "conflito" e não altera nada.
+
+O próprio Hermes grava estado de execução no `config.yaml` (ex.: `onboarding.seen` depois de oferecer o perfil). Isso aparece no `jarvis diff` como mudança do Hermes; traga com `jarvis import` e leve ao repo.
+
 Até o release chegar à VPS, **não rode `jarvis apply`**: ele aplicaria a versão antiga do repo por cima da mudança do dashboard. Use `jarvis diff` para ver a diferença.
 
 ## 7. Lendo uma falha
