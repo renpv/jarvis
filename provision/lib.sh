@@ -31,8 +31,12 @@ require_root() {
 }
 
 # apt_get — apt-get que espera o lock do dpkg (numa VPS nova o unattended-upgrades costuma segurá-lo).
+# Lock: VPS recém-criada roda unattended-upgrades. Timeout/Retries: um espelho que para de
+# responder no meio do download faz o apt esperar indefinidamente (já custou 14 min no CI);
+# com eles, a conexão parada cai em 30 s e o download é tentado de novo.
 apt_get() {
-  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 "$@"
+  DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=600 \
+    -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=3 "$@"
 }
 
 apt_install() {
