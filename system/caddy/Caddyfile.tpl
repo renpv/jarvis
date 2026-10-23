@@ -12,8 +12,17 @@ http://hermes.@DOMAIN@ {
 	basic_auth {
 		{$DASHBOARD_USER} {$DASHBOARD_HASH}
 	}
+	# A aba Chat usa WebSocket, e o dashboard só aceita a Origin do endereço em que escuta
+	# (127.0.0.1). Proteção contra "cross-site WebSocket hijacking", feita aqui: Origin de
+	# outro site (ou de outro app *.jarvis.lan) leva 403; a certa é reescrita para o bind.
+	@outra_origem {
+		header Origin *
+		not header Origin http://hermes.@DOMAIN@
+	}
+	respond @outra_origem "origem não permitida" 403
 	reverse_proxy 127.0.0.1:@DASHBOARD_PORT@ {
 		header_up Host 127.0.0.1:@DASHBOARD_PORT@
+		header_up Origin http://127.0.0.1:@DASHBOARD_PORT@
 	}
 }
 
