@@ -2087,9 +2087,10 @@ approvals:
     - '*curl*|*sh*'
     - '*wget*|*sh*'
     - 'dd if=* of=/dev/*'
-    - 'rm -rf /'
-    - 'rm -rf /*'
     - '*sudoers*'
+  # Sem regras de "rm -rf": a lista fixa do Hermes (hardline) já barra "rm -rf /" e variantes,
+  # e um glob como 'rm -rf /*' bloquearia QUALQUER rm -rf com caminho absoluto (o * casa tudo),
+  # inclusive na pasta de trabalho do próprio Jarvis.
 
 security:
   redact_secrets: true    # mascara padrões de chave/token na saída das ferramentas e nos logs
