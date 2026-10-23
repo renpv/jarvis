@@ -19,6 +19,10 @@ export JARVIS_REPO="${JARVIS_REPO:-$(dirname "$(dirname "$SELF")")}"
 # shellcheck source=provision/lib.sh
 source "$JARVIS_REPO/provision/lib.sh"
 
+# Comandos rodam como hermes, que não acessa a pasta de onde o admin costuma chamar (/opt/jarvis).
+# Tudo aqui usa caminhos absolutos; partir de / evita "Failed to restore initial working directory".
+cd /
+
 # SUDO: comandos de sistema (systemctl, jarvis-peer).
 # HSUDO: TUDO que lê ou grava na pasta do Hermes roda COMO o usuário hermes, nunca como root.
 # A pasta é do hermes; se root a tocasse, um link simbólico plantado ali viraria escalada para root.
