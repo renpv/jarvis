@@ -1418,7 +1418,7 @@ stt:
     # no_speech_prob_threshold: 0.6  # drop a segment only if no_speech_prob > this...
     # logprob_threshold: -1.0       # ...AND avg_logprob < this (both must hit — quiet real speech survives)
     # unload_after_idle_seconds: 0  # 0=never unload (default); e.g. 300 releases the model after 5min idle (frees VRAM on GPU; next voice message reloads it)
-  language: "en"               # GLOBAL language hint for every STT provider (per-provider language wins). Set "" for auto-detect.
+  language: "pt"               # Jarvis: áudios do Telegram em português. GLOBAL language hint for every STT provider (per-provider language wins). Set "" for auto-detect.
   # groq:
   #   model: "whisper-large-v3-turbo"
   #   language: ""             # blank = stt.language > HERMES_LOCAL_STT_LANGUAGE > auto-detect
@@ -1575,6 +1575,8 @@ delegation:
 # Display
 # =============================================================================
 display:
+  # Jarvis: mensagens fixas do Hermes (aprovações, botões, avisos) em português do Brasil.
+  language: pt
   # Use compact banner mode (hides the ASCII-art banner, shows a single line).
   #   true:  Compact single-line banner
   #   false: Full ASCII banner with tool/skill summary (default)
