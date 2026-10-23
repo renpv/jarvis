@@ -31,6 +31,27 @@ EOF
   [[ $list != *"gateway.log"* ]]
 }
 
+@test "deixa de fora o que o instalador do Hermes refaz (código, ambientes, ferramentas, cache)" {
+  for d in hermes-agent installs tools cache; do
+    mkdir -p "$SANDBOX/src/.hermes/$d/sub"
+    echo x > "$SANDBOX/src/.hermes/$d/sub/arquivo"
+  done
+  mkdir -p "$SANDBOX/src/apps/site/cache" "$SANDBOX/src/.hermes/skills/tools"
+  echo app > "$SANDBOX/src/apps/site/cache/dado"
+  echo s > "$SANDBOX/src/.hermes/skills/tools/SKILL.md"
+  export JARVIS_DATE=2026-10-17
+  run "$BACKUP"
+  [ "$status" -eq 0 ]
+  list=$(tar -I zstd -tf "$SANDBOX/bk/jarvis-daily-2026-10-17.tar.zst")
+  for d in hermes-agent installs tools cache; do
+    [[ $list != *".hermes/$d/"* ]] || { echo ".hermes/$d entrou no backup"; return 1; }
+  done
+  # o filtro vale só para esses diretórios no topo de .hermes
+  [[ $list == *"apps/site/cache/dado"* ]]
+  [[ $list == *".hermes/skills/tools/SKILL.md"* ]]
+  [[ $list == *".hermes/MEMORY.md"* ]]
+}
+
 @test "domingo gera backup semanal" {
   export JARVIS_DATE=2026-10-18
   run "$BACKUP"
