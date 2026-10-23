@@ -211,3 +211,13 @@ setup() {
   done
   [ ! -e "$HERMES_HOME/config.yaml" ]
 }
+
+@test "funciona chamado de uma pasta que o hermes não acessa (ex.: /opt/jarvis)" {
+  "$JARVIS" apply
+  mkdir -p "$SANDBOX/fechada"
+  cd "$SANDBOX/fechada" && chmod 000 "$SANDBOX/fechada"
+  run "$JARVIS" diff
+  cd / && chmod 755 "$SANDBOX/fechada"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [[ "$output" == *"sem diferenças"* ]]
+}
