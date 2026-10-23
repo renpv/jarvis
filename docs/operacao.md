@@ -118,7 +118,7 @@ sudo systemctl restart hermes-gateway hermes-dashboard
 | `hermes.jarvis.lan` não abre no Windows | O túnel está ativo? `nslookup hermes.jarvis.lan 10.8.0.1` deve responder `10.8.0.1`. Se o Windows ignorar o DNS do túnel, acrescente `10.8.0.1 hermes.jarvis.lan` em `C:\Windows\System32\drivers\etc\hosts` (como administrador). |
 | Não abre no Android | Configurações → Rede → **DNS privado**: use "Automático" ou "Desativado". Um provedor fixo ignora o DNS da VPN. |
 | Gateway não sobe | `journalctl -u hermes-gateway -n 100 --no-pager` e `jarvis check-env`. |
-| Aba Chat do dashboard não conecta | Abra o console do navegador (F12). Se houver erro de WebSocket/Origin, acrescente `header_up Origin http://127.0.0.1:9119` no `reverse_proxy` de `system/caddy/Caddyfile.tpl`, faça push e rode `sudo provision/30-dns-caddy.sh`. |
+| Aba Chat do dashboard não conecta | Veja `sudo grep -h "pty refused" /var/lib/hermes/.hermes/logs/*` na VPS. `origin_mismatch` com a Origin certa (`http://hermes.jarvis.lan`) indica Caddyfile desatualizado: rode `sudo provision/30-dns-caddy.sh`. Origin de outro site é recusada de propósito (403). |
 | `jarvis apply` recusou | `jarvis diff`, depois `jarvis import` (manter) ou `jarvis apply --force` (descartar). |
 | `jarvis import` abortou com "segredo" | Algum arquivo do Hermes ganhou um token. Tire-o do arquivo (ele vai no `.env`) e rode de novo. |
 | App publicado não abre | `ls /etc/caddy/apps.d/` mostra o app? A VPN está ligada? Peça ao Jarvis um diagnóstico (skill `monitorar-vps`). |

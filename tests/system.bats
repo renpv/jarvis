@@ -86,3 +86,10 @@ caddy_validate() {
   [[ "$output" == *"RuntimeDirectory=caddy"* ]]
   [[ "$output" == *"RuntimeDirectoryMode=0700"* ]]
 }
+
+@test "dashboard: Caddy recusa Origin estranha e reescreve a certa para o bind do dashboard" {
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT
+  [[ "$output" == *"not header Origin http://hermes.jarvis.lan"* ]]
+  [[ "$output" == *"respond @outra_origem"*"403"* ]]
+  [[ "$output" == *"header_up Origin http://127.0.0.1:9119"* ]]
+}
