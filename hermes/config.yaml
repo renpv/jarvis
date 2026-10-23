@@ -2097,3 +2097,6 @@ security:
 
 checkpoints:
   enabled: true           # snapshot antes de operações destrutivas em arquivos
+onboarding:
+  seen:
+    profile_build_offered: true
