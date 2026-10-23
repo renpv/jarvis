@@ -98,7 +98,7 @@ As rotinas ficam em `~/.hermes/cron/`, que é estado (entra no backup e não vai
 Elas foram criadas com:
 
 ```bash
-jarvis hermes cron create "0 7 * * *" "Resumo matinal para Renato, em português e em no máximo 10 linhas: 1) eventos de hoje no Google Calendar (fuso America/Fortaleza); se a agenda ainda não estiver configurada, diga isso em uma linha; 2) tarefas pendentes com data até hoje em /var/lib/hermes/notas/tarefas.md; 3) uma linha de alerta só se 'systemctl --failed --no-legend' mostrar algo." --name "Resumo matinal" --deliver telegram
+jarvis hermes cron create "0 7 * * *" "Resumo matinal para Renato, em português e em no máximo 10 linhas: 1) eventos de hoje no Google Calendar (fuso America/Fortaleza); se a agenda ainda não estiver configurada, diga isso em uma linha; 2) tarefas pendentes com data até hoje no Google Tasks (skill tarefas: scripts/tarefas listar --ate <hoje>); 3) uma linha de alerta só se 'systemctl --failed --no-legend' mostrar algo." --name "Resumo matinal" --deliver telegram
 jarvis hermes cron create "0 10 * * 0" "Lembre Renato, em português e em uma linha, de rodar './bin/jarvis backup pull' no computador (com a VPN ligada) para copiar os backups da VPS." --name "Lembrete de backup" --deliver telegram
 ```
 
@@ -117,24 +117,28 @@ rodar comando perigoso, porque não há quem aprove.
 segundos. O resumo foi disparado antes de o Calendar estar configurado; a linha de agenda só passa
 a vir preenchida a partir dali.
 
-## Tarefas
+## Tarefas (Google Tasks)
 
-A skill `tarefas` (no repo, em `hermes/skills/jarvis/tarefas/`) mantém `~/notas/tarefas.md`:
+Até 23/10 as tarefas ficavam num arquivo na VPS (`~/notas/tarefas.md`). Elas passaram para o
+**Google Tasks**, que tem caixinha de concluído, aceita tarefa sem data e aparece no app Google
+Tasks do Android e, as que têm data, no Google Agenda.
 
-```markdown
-# Tarefas
+A skill `google-workspace` do Hermes não cobre o Google Tasks. Por isso a nossa skill `tarefas` tem
+um script próprio, `scripts/google_tasks.py`, que usa as bibliotecas do Google do Hermes e o mesmo
+`google_token.json`. Ele é chamado pelo `scripts/tarefas`, que procura o Python do Hermes:
 
-## Pendentes
-- [ ] 2026-10-20 · Pagar a conta de luz #casa
-- [ ] sem data · Ler o artigo sobre WireGuard #estudo
-
-## Concluídas
-- [x] 2026-10-15 · Renovar token do GitHub #jarvis (feita 2026-10-16)
+```bash
+T=~/.hermes/skills/jarvis/tarefas/scripts/tarefas
+$T listar [--ate AAAA-MM-DD]
+$T criar "título" [--data AAAA-MM-DD] [--notas "#etiqueta"]
+$T concluir <id> | adiar <id> AAAA-MM-DD | apagar <id>
 ```
 
-- Uma tarefa por linha, com data absoluta. "Amanhã" e "sexta" viram `AAAA-MM-DD` no fuso de Fortaleza.
-- Lembrete com hora marcada é cron, não tarefa.
-- O arquivo é texto puro. Dá para ler e editar à mão (`sudo -u hermes nano /var/lib/hermes/notas/tarefas.md`),
-  e ele entra no backup.
+Para isso, o token precisa de dois escopos: `calendar` e `tasks`. A *Google Tasks API* foi ativada
+no mesmo projeto, e a autorização foi refeita com o mesmo truque da seção anterior, trocando a lista por:
 
-**Resultado:** pendente. O arquivo ainda não existia em 23/10 (veja `docs/aceite.md`).
+```python
+s.SCOPES = ["https://www.googleapis.com/auth/calendar", "https://www.googleapis.com/auth/tasks"]
+```
+
+O script é testado sem rede, com um Google Tasks falso (`tests/google_tasks_test.py`).

@@ -20,7 +20,7 @@ seção 10), verificados na VPS `179.197.74.162` (Ubuntu 24.04, Hermes v0.22.4).
 ## Pendências
 
 1. **Critério 1b:** de outra conta do Telegram, mande uma mensagem ao bot. Esperado: nenhuma resposta.
-2. **Skill de tarefas** (não é critério, mas faz parte da Tarefa 17): "anota a tarefa: revisar o backup,
-   para amanhã" e depois "quais minhas tarefas?". Esperado: `~/notas/tarefas.md` criado e a tarefa no resumo do dia seguinte.
+2. **Skill de tarefas** (não é critério, mas faz parte da Tarefa 17), agora no Google Tasks: "anota a tarefa:
+   revisar o backup, para amanhã" e depois "quais minhas tarefas?". Esperado: a tarefa no app Google Tasks e no resumo do dia seguinte.
 3. **Opcional:** reiniciar a VPS e conferir que serviços, VPN e o app `exemplo` voltam sozinhos.
 4. **Opcional:** uma cópia do backup fora da VPS e de casa (regra 3-2-1, guia 60).

@@ -32,6 +32,6 @@ como o usuário Linux `hermes`, e conversa pelo Telegram e pelo dashboard web.
 ## Onde ficam as coisas
 - Projetos de código: `/var/lib/hermes/workspace/`
 - Apps publicados: `/var/lib/hermes/apps/<nome>/` — skill `publicar-app`
-- Tarefas: `/var/lib/hermes/notas/tarefas.md` — skill `tarefas`
+- Tarefas: Google Tasks de Renato — skill `tarefas` (script `scripts/tarefas`)
 - Saúde da VPS: skill `monitorar-vps`
-- Agenda: Google Calendar de Renato (skill `google-workspace`, só Calendar)
+- Agenda: Google Calendar de Renato (skill `google-workspace`; o token só tem Calendar e Tasks)

@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 CI_BIN := $(CURDIR)/.ci-bin
 export PATH := $(CI_BIN)/bin:$(PATH)
-SCRIPTS := $(wildcard provision/*.sh) bin/jarvis bin/jarvis-expose bin/jarvis-peer bin/jarvis-backup \
+SCRIPTS := $(wildcard provision/*.sh) bin/jarvis bin/jarvis-expose bin/jarvis-peer bin/jarvis-backup hermes/skills/jarvis/tarefas/scripts/tarefas \
            $(wildcard ci/*.sh) $(wildcard ci/hooks/*)
 
 .PHONY: test lint unit ci ferramentas hooks
