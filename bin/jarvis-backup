@@ -37,9 +37,16 @@ for d in .hermes apps notas; do
 done
 ((${#items[@]})) || { echo "jarvis-backup: nada para copiar em $SRC_DIR" >&2; exit 1; }
 
+# Fora do backup: logs e o que o instalador do Hermes (provision/40-hermes.sh) refaz ou baixa
+# de novo sob demanda — código, ambientes Python, ferramentas (node, chromium…) e cache.
+# Juntos passam de 1 GB; o resto (config, memórias, sessões, cron, tokens) cabe em poucos MB.
+EXCLUDES=(logs hermes-agent installs tools cache)
+excl=()
+for d in "${EXCLUDES[@]}"; do excl+=(--exclude=".hermes/$d"); done
+
 # rc 1 = "arquivo mudou durante a leitura" (um app rodando gravou algo): o backup segue válido.
 rc=0
-tar -C "$SRC_DIR" --exclude='.hermes/logs' --warning=no-file-changed -I 'zstd -q -T0 -10' \
+tar -C "$SRC_DIR" --anchored "${excl[@]}" --warning=no-file-changed -I 'zstd -q -T0 -10' \
   -cf "$out.tmp" "${items[@]}" || rc=$?
 if ((rc > 1)); then
   rm -f "$out.tmp"

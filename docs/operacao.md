@@ -93,8 +93,11 @@ inclusive os UIDs "estranhos" (300000+) dos arquivos criados pelos containers ro
 `chown -R hermes` estragaria.
 
 **O que NÃO está no backup:** as chaves do WireGuard (os dispositivos são adicionados de novo),
-`/etc/caddy/secrets.env` (o `30-dns-caddy.sh` pede a senha de novo) e o clone `/opt/jarvis`
-(vem do GitHub).
+`/etc/caddy/secrets.env` (o `30-dns-caddy.sh` pede a senha de novo), o clone `/opt/jarvis`
+(vem do GitHub) e, dentro de `.hermes`, o que o instalador do Hermes refaz: `hermes-agent/`
+(código), `installs/` (ambientes Python), `tools/` (node, chromium, ffmpeg…) e `cache/`. Por isso
+o passo 1 (que roda o `40-hermes.sh`) vem antes de extrair o backup: a instalação nova fica, e o
+backup traz por cima só o estado (config, `.env`, memórias, sessões, cron, tokens do Google).
 
 ## 6. Tokens com validade
 
