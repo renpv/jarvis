@@ -16,3 +16,7 @@ backups/
 
 # Ferramentas do CI instaladas localmente (make ferramentas)
 .ci-bin/
+
+# Bytecode do Python (gerado pelos testes e pelos scripts das skills)
+__pycache__/
+*.pyc

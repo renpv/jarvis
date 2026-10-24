@@ -151,6 +151,27 @@ cmd_apply() {
   ok "aplicado; serviços reiniciados: ${SERVICES[*]}"
 }
 
+# mesclar REL STAGE — mescla de três vias de um arquivo gerenciado: base = último apply/import
+# ($APPLIED), repo ($SRC), Hermes (STAGE). Grava o resultado em $WORK/mesclado/REL; se o arquivo
+# deve deixar de existir, não grava nada. Devolve 1 em conflito.
+mesclar() {
+  local rel=$1 b="$APPLIED/$1" r="$SRC/$1" h="$2/$1" out="$WORK/mesclado/$1"
+  mkdir -p "$(dirname "$out")"
+  if [[ ! -f $h ]]; then
+    if [[ ! -f $b ]]; then cp "$r" "$out"; return 0; fi # novo no repo
+    if [[ ! -f $r ]]; then return 0; fi                  # apagado dos dois lados
+    cmp -s "$b" "$r" && return 0                          # o Hermes apagou; o repo não mexeu
+    return 1                                              # o Hermes apagou; o repo editou
+  fi
+  if [[ ! -f $r ]]; then
+    if [[ ! -f $b ]]; then cp "$h" "$out"; return 0; fi # novo no Hermes
+    cmp -s "$b" "$h" && return 0                          # o repo apagou; o Hermes não mexeu
+    return 1                                              # o repo apagou; o Hermes editou
+  fi
+  cp "$r" "$out"
+  git merge-file -q -L repo -L "último apply" -L hermes "$out" "$(_or_empty "$b" f)" "$h"
+}
+
 cmd_import() {
   preflight "user:$HERMES_USER"
   local stage="$WORK/stage" f hits
@@ -165,28 +186,42 @@ cmd_import() {
 
   # Mescla de três vias por arquivo: base = último apply/import, "nosso" = repo, "deles" = Hermes.
   # Assim, uma mudança que acabou de chegar pelo deploy não é desfeita por uma mudança do Hermes.
-  local conflitos=() resultado
-  for f in "${MANAGED_FILES[@]}"; do
-    [[ -f $stage/$f ]] || continue
-    resultado="$WORK/mesclado-$f"
-    if [[ -f $APPLIED/$f && -f $SRC/$f ]]; then
-      cp "$SRC/$f" "$resultado"
-      git merge-file -q -L repo -L "último apply" -L hermes "$resultado" "$APPLIED/$f" "$stage/$f" ||
-        conflitos+=("hermes/$f")
-    else
-      cp "$stage/$f" "$resultado"
+  # Vale para config.yaml, SOUL.md e cada arquivo de skills/jarvis (inclusive criados e apagados).
+  local conflitos=() rels=() rel
+  if [[ ! -d $APPLIED ]]; then
+    # Primeira importação: não há base; o Hermes é a referência.
+    for f in "${MANAGED_FILES[@]}"; do
+      if [[ -f $stage/$f ]]; then cp "$stage/$f" "$SRC/$f"; fi
+    done
+    if [[ -d $stage/$MANAGED_SKILLS ]]; then
+      rm -rf "${SRC:?}/$MANAGED_SKILLS"
+      mkdir -p "$SRC/skills"
+      cp -r "$stage/$MANAGED_SKILLS" "$SRC/skills/"
     fi
-  done
-  if ((${#conflitos[@]})); then
-    die "conflito ao importar ${conflitos[*]}: o repo e o Hermes mudaram as mesmas linhas. Nada foi alterado. Compare com 'jarvis diff', ajuste o repo à mão e rode 'jarvis apply --force'."
-  fi
-  for f in "${MANAGED_FILES[@]}"; do
-    if [[ -f $WORK/mesclado-$f ]]; then cp "$WORK/mesclado-$f" "$SRC/$f"; fi
-  done
-  if [[ -d $stage/$MANAGED_SKILLS ]]; then
-    rm -rf "${SRC:?}/$MANAGED_SKILLS"
-    mkdir -p "$SRC/skills"
-    cp -r "$stage/$MANAGED_SKILLS" "$SRC/skills/"
+  else
+    for f in "${MANAGED_FILES[@]}"; do
+      if [[ -f $stage/$f ]]; then rels+=("$f"); fi
+    done
+    while IFS= read -r rel; do rels+=("$rel"); done < <(
+      for d in "$APPLIED" "$SRC" "$stage"; do
+        if [[ -d $d/$MANAGED_SKILLS ]]; then (cd "$d" && find "$MANAGED_SKILLS" -type f); fi
+      done | sort -u)
+    mkdir -p "$WORK/mesclado"
+    for rel in "${rels[@]}"; do
+      mesclar "$rel" "$stage" || conflitos+=("hermes/$rel")
+    done
+    if ((${#conflitos[@]})); then
+      die "conflito ao importar ${conflitos[*]}: o repo e o Hermes mudaram a mesma coisa (mesmas linhas, ou um apagou o que o outro editou). Nada foi alterado. Compare com 'jarvis diff', ajuste o repo à mão e rode 'jarvis apply --force'."
+    fi
+    for rel in "${rels[@]}"; do
+      if [[ -f $WORK/mesclado/$rel ]]; then
+        mkdir -p "$(dirname "$SRC/$rel")"
+        cp "$WORK/mesclado/$rel" "$SRC/$rel"
+      else
+        rm -f "$SRC/$rel"
+      fi
+    done
+    if [[ -d $SRC/$MANAGED_SKILLS ]]; then find "$SRC/$MANAGED_SKILLS" -mindepth 1 -type d -empty -delete; fi
   fi
 
   snapshot_from "$stage"
