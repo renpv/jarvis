@@ -1,12 +1,12 @@
 ---
 name: tarefas
-description: Gerencia a lista de tarefas de Renato no arquivo /var/lib/hermes/notas/tarefas.md
-version: 1.0.0
+description: Gerencia as tarefas de Renato no Google Tasks (lista "Minhas tarefas"), pelo script scripts/tarefas
+version: 2.0.0
 author: Renato e Jarvis
 platforms: [linux]
 metadata:
   hermes:
-    tags: [produtividade, tarefas, jarvis]
+    tags: [produtividade, tarefas, jarvis, google]
 ---
 
 # Tarefas
@@ -16,31 +16,34 @@ Quando Renato pedir para anotar, listar, concluir, adiar ou apagar tarefas ("me 
 "o que tenho pendente?", "marquei X como feito").
 Lembrete com hora marcada ("me avisa amanhã às 15h") é cron, não tarefa — use o cron do Hermes,
 com entrega no Telegram, e também anote a tarefa se fizer sentido.
+Compromisso com horário (reunião, consulta) é evento do Google Calendar, não tarefa.
 
-## Arquivo
-`/var/lib/hermes/notas/tarefas.md` — crie com o modelo abaixo se não existir.
+## Onde ficam
+No Google Tasks de Renato, lista padrão ("Minhas tarefas"). Ele vê no app Google Tasks do Android
+e, as que têm data, no Google Agenda. Use sempre o script abaixo; não use outra ferramenta para isso.
 
-```markdown
-# Tarefas
-
-## Pendentes
-- [ ] 2026-10-20 · Pagar a conta de luz #casa
-- [ ] sem data · Ler o artigo sobre WireGuard #estudo
-
-## Concluídas
-- [x] 2026-10-15 · Renovar token do GitHub #jarvis (feita 2026-10-16)
+```bash
+T=~/.hermes/skills/jarvis/tarefas/scripts/tarefas
+$T listar                                   # pendentes, por data (sem data no fim)
+$T listar --ate 2026-10-23                  # vencidas e do dia
+$T criar "Pagar a conta de luz" --data 2026-10-24 --notas "#casa"
+$T criar "Ler o artigo sobre WireGuard"     # sem data
+$T concluir <id>
+$T adiar <id> 2026-10-30
+$T apagar <id>
 ```
 
-## Formato
-- Uma tarefa por linha: `- [ ] AAAA-MM-DD · descrição #etiqueta` (ou `sem data`).
-- Pendentes ordenadas por data (sem data no fim).
-- Ao concluir: mova para "Concluídas", troque `[ ]` por `[x]` e acrescente `(feita AAAA-MM-DD)`.
-- Datas relativas ("sexta", "amanhã") viram data absoluta no fuso America/Fortaleza.
+A saída é JSON: `{"id", "titulo", "data", "notas"}`. O `id` vem do `listar`.
 
-## Procedimento
-1. Leia o arquivo inteiro antes de mudar.
-2. Faça a mudança preservando o resto do arquivo.
-3. Confirme para Renato em uma linha o que mudou.
+## Regras
+- Datas relativas ("sexta", "amanhã") viram AAAA-MM-DD no fuso America/Fortaleza antes de chamar o script.
+- Etiquetas (#casa, #estudo) vão em `--notas`.
+- Para concluir, adiar ou apagar: rode `listar`, ache a tarefa pelo título e use o `id`.
+  Se houver mais de uma parecida, pergunte qual.
+- Apagar é definitivo: confirme com Renato antes. Concluir não precisa de confirmação.
+- Confirme para Renato em uma linha o que mudou (título e data).
 
-## Verificação
-`grep -n "<trecho da tarefa>" /var/lib/hermes/notas/tarefas.md` mostra a linha esperada.
+## Se der erro
+- "não tem o escopo do Google Tasks": o token precisa ser autorizado de novo com calendar e tasks.
+  Avise Renato; não tente autorizar pelo chat.
+- "nenhum Python do Hermes": avise Renato com a mensagem de erro.
