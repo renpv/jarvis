@@ -7,7 +7,7 @@ dir=$(dirname "$(readlink -f "$0")")
 home=${HERMES_HOME:-$HOME/.hermes}
 for py in "$home"/installs/*/environments/*/venv/bin/python; do
   if [[ -x $py ]] && "$py" -c 'import googleapiclient, google.oauth2' 2>/dev/null; then
-    exec "$py" "$dir/google_tasks.py" "$@"
+    exec "$py" -B "$dir/google_tasks.py" "$@"
   fi
 done
 echo "tarefas: nenhum Python do Hermes com as bibliotecas do Google em $home/installs" >&2
