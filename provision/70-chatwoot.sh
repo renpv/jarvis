@@ -96,7 +96,7 @@ compose up -d --remove-orphans
 
 log "verificando"
 for _ in $(seq 1 60); do
-  if curl -fsS -o /dev/null "http://127.0.0.1:$CHATWOOT_PORT/api"; then break; fi
+  if curl -fs -o /dev/null "http://127.0.0.1:$CHATWOOT_PORT/api"; then break; fi   # -s: sem ruído enquanto o Rails sobe
   sleep 3
 done
 curl -fsS -o /dev/null "http://127.0.0.1:$CHATWOOT_PORT/api" || die "o Chatwoot não respondeu em 127.0.0.1:$CHATWOOT_PORT (veja: $0 com 'compose logs rails')"
