@@ -46,7 +46,7 @@ blocos do Jarvis foram acrescentados no repo. O que mudamos:
 
 | Bloco | Valor | Por quê |
 |---|---|---|
-| `model` | `gpt-5.5`, provedor `openai-api` | o agente principal (escolhido com `hermes model`, que é interativo) |
+| `model` | `gpt-6.1-sol`, provedor `openai-api`, `api_mode: codex_responses` | o agente principal (escolhido com `hermes model`, que é interativo; era `gpt-5.5` até 30/10) |
 | `auxiliary.compression`, `auxiliary.title_generation` | `gpt-5.4-mini` | tarefas internas (resumir histórico, dar título) com um modelo barato |
 | `timezone` | `America/Fortaleza` | datas, cron e agenda no fuso certo |
 | `approvals.mode` | `manual` | todo comando perigoso pede aprovação com botões no Telegram |
