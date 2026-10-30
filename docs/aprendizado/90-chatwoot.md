@@ -17,8 +17,13 @@ internet ──► :80/:443 no IP público ──► Caddy ──► 127.0.0.1:3
 - O usuário `chatwoot` tem um Docker rootless próprio, separado do `hermes`. Um não lê os arquivos
   do outro, e os containers dos dois usam faixas de UID diferentes.
 - As imagens têm versão e digest fixos em `system/chatwoot/compose.yaml`.
-- `/installation/*`, onde se cria o primeiro administrador, e `/super_admin*` pedem **o usuário e a
-  senha do dashboard** (`basic_auth` do Caddy) antes do login do próprio Chatwoot.
+- `/installation/*`, onde se cria o primeiro administrador, e `/super_admin*` pedem um **usuário e
+  senha próprios** (`basic_auth` do Caddy) antes do login do próprio Chatwoot. A senha é aleatória,
+  foi gerada pelo `30-dns-caddy.sh` e fica em `/etc/caddy/chatwoot-portao.txt` (root, 600). Não é a
+  senha do dashboard, que assim não fica exposta na internet.
+- Uma regra **nftables** (`jarvis-chatwoot-porta.service`) fecha `127.0.0.1:3000` para todo usuário
+  que não seja `caddy`, `chatwoot` ou root. Sem ela, o `hermes` (ou qualquer usuário local) falaria
+  direto com o Rails e pularia o portão.
 
 | Caminho na VPS | O quê |
 |---|---|
@@ -29,9 +34,9 @@ internet ──► :80/:443 no IP público ──► Caddy ──► 127.0.0.1:3
 
 ## Primeiro acesso
 
-1. `https://atendimento.renpv.com.br/installation/onboarding`. O Caddy pede usuário e senha: use os
-   do dashboard do Hermes.
-2. Crie a conta de administrador (nome, e-mail, senha forte). O cadastro público fica desligado
+1. Na VPS, `sudo cat /etc/caddy/chatwoot-portao.txt` mostra o usuário e a senha do portão.
+2. Abra `https://atendimento.renpv.com.br/installation/onboarding`. O Caddy pede esse usuário e essa senha.
+3. Crie a conta de administrador (nome, e-mail, senha forte). O cadastro público fica desligado
    (`ENABLE_ACCOUNT_SIGNUP=false`), e novos agentes entram por convite.
 
 ## Comandos

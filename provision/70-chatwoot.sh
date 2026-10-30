@@ -6,7 +6,7 @@ set -euo pipefail
 # shellcheck source=provision/lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 # Depende do 50 (pacotes do Docker rootless, perfil AppArmor) e do 30 (Caddy com o site público).
-preflight os root "user:$HERMES_USER" cmd:dockerd-rootless-setuptool.sh cmd:caddy cmd:openssl
+preflight os root "user:$HERMES_USER" user:caddy cmd:dockerd-rootless-setuptool.sh cmd:caddy cmd:openssl cmd:nft
 
 U=$CHATWOOT_USER
 D=$CHATWOOT_DIR
@@ -34,6 +34,17 @@ if [[ ! -f $D/.config/systemd/user/docker.service ]]; then
   como dockerd-rootless-setuptool.sh install >/dev/null || die "falha ao configurar o Docker rootless do $U"
 fi
 como systemctl --user enable --now docker >/dev/null 2>&1 || die "falha ao iniciar o Docker rootless do $U"
+
+log "porta local só para o Caddy (nftables)"
+# shellcheck disable=SC2034  # usados pelo render via nome
+CADDY_UID=$(id -u caddy) CHATWOOT_UID=$uid
+install_rendered /etc/jarvis/chatwoot-porta.nft 644 root:root "$SYSTEM_DIR/nftables/chatwoot-porta.nft.tpl" \
+  CHATWOOT_PORT CADDY_UID CHATWOOT_UID
+install_file "$SYSTEM_DIR/systemd/jarvis-chatwoot-porta.service" /etc/systemd/system/jarvis-chatwoot-porta.service 644 root:root
+systemctl daemon-reload
+systemctl enable jarvis-chatwoot-porta.service >/dev/null 2>&1
+systemctl restart jarvis-chatwoot-porta.service
+nft list table inet jarvis_chatwoot >/dev/null || die "regra da porta do Chatwoot não carregou"
 
 log "compose e .env"
 # Tudo dentro da home do chatwoot é gravado COMO chatwoot: um link plantado ali não vira acesso de root.
@@ -87,4 +98,4 @@ curl -fsS -o /dev/null "http://127.0.0.1:$CHATWOOT_PORT/api" || die "o Chatwoot 
 fora=$(ss -Htln "sport = :$CHATWOOT_PORT" | awk '{print $4}' | grep -v '^127\.0\.0\.1:' || true)
 [[ -z $fora ]] || die "a porta $CHATWOOT_PORT escuta fora do loopback: $fora"
 ok "Chatwoot ativo: https://$CHATWOOT_DOMAIN"
-echo "   Primeiro acesso: https://$CHATWOOT_DOMAIN/installation/onboarding (pede o usuário e a senha do dashboard)"
+echo "   Primeiro acesso: https://$CHATWOOT_DOMAIN/installation/onboarding (usuário e senha: sudo cat /etc/caddy/chatwoot-portao.txt)"

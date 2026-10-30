@@ -52,6 +52,14 @@ portas_publicas() {
   done
 }
 
+@test "Chatwoot: o hermes não alcança a porta local (só via Caddy); portão com senha própria" {
+  sudo nft list table inet jarvis_chatwoot | grep -q "tcp dport $CHATWOOT_PORT meta skuid"
+  run as_hermes curl -s --max-time 3 "http://127.0.0.1:$CHATWOOT_PORT/"
+  [ "$status" -ne 0 ]
+  sudo grep -q '^CHATWOOT_GATE_HASH=' /etc/caddy/secrets.env
+  [ "$(sudo stat -c '%a %U' /etc/caddy/chatwoot-portao.txt)" = "600 root" ]
+}
+
 @test "Chatwoot: usuário próprio com Docker rootless; .env 600; o hermes não lê a pasta" {
   CUID=$(id -u chatwoot)
   sudo -u chatwoot env -i XDG_RUNTIME_DIR=/run/user/$CUID DOCKER_HOST=unix:///run/user/$CUID/docker.sock \

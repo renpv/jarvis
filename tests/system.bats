@@ -5,7 +5,7 @@ setup() {
   source "$REPO_ROOT/provision/lib.sh"
   WG_SERVER_PRIVKEY=chave-de-teste
   HERMES_UID=1234
-  PUBLIC_IP=203.0.113.10 CHATWOOT_TLS=""
+  PUBLIC_IP=203.0.113.10 CHATWOOT_TLS="" CADDY_UID=111 CHATWOOT_UID=222
   CADDY_VARS=(WG_SERVER_IP DOMAIN DASHBOARD_PORT PUBLIC_IP CHATWOOT_DOMAIN CHATWOOT_PORT CHATWOOT_TLS)
 }
 
@@ -59,7 +59,7 @@ caddy_validate() {
   # timeout: um Docker local travado não pode prender o pre-push para sempre
   hash=$(timeout 120 docker run --rm caddy:2.10 caddy hash-password --plaintext teste)
   timeout 120 docker run --rm -v "$SANDBOX/caddy:/etc/caddy:ro" \
-    -e DASHBOARD_USER=renpv -e DASHBOARD_HASH="$hash" \
+    -e DASHBOARD_USER=renpv -e DASHBOARD_HASH="$hash" -e CHATWOOT_GATE_USER=portao -e CHATWOOT_GATE_HASH="$hash" \
     caddy:2.10 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 }
 
@@ -117,12 +117,14 @@ caddy_validate() {
 
 }
 
-@test "Caddy: criação do primeiro admin e o super_admin do Chatwoot pedem a senha do dashboard" {
+@test "Caddy: criação do primeiro admin e o super_admin do Chatwoot pedem uma senha própria" {
   run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
   bloco=$(sed -n '/^atendimento.renpv.com.br {/,/^}/p' <<<"$output")
   [[ "$bloco" == *"@restrito path /installation* /super_admin*"* ]]
   [[ "$bloco" == *"basic_auth @restrito"* ]]
-  [[ "$bloco" == *'{$DASHBOARD_USER} {$DASHBOARD_HASH}'* ]]
+  # credencial própria e aleatória: a senha do dashboard não fica exposta a força bruta na internet
+  [[ "$bloco" == *'{$CHATWOOT_GATE_USER} {$CHATWOOT_GATE_HASH}'* ]]
+  [[ "$bloco" != *'DASHBOARD_'* ]]
 }
 
 @test "Caddy: no CI o Chatwoot usa tls internal (não gasta o limite do Let's Encrypt do domínio real)" {
@@ -137,5 +139,18 @@ caddy_validate() {
   CHATWOOT_TLS="tls internal"
   render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}" > "$SANDBOX/caddy/Caddyfile"
   run caddy_validate
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "nftables: só caddy, chatwoot e root abrem a porta local do Chatwoot (o hermes não pula o Caddy)" {
+  CADDY_UID=111 CHATWOOT_UID=222
+  run render "$REPO_ROOT/system/nftables/chatwoot-porta.nft.tpl" CHATWOOT_PORT CADDY_UID CHATWOOT_UID
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [[ "$output" == *"type filter hook output"* ]]
+  [[ "$output" == *"ip daddr 127.0.0.1 tcp dport 3000 meta skuid != { 0, 111, 222 } reject with tcp reset"* ]]
+  [[ "$output" == *"ip6 daddr ::1 tcp dport 3000 meta skuid != { 0, 111, 222 } reject with tcp reset"* ]]
+  timeout 20 docker info >/dev/null 2>&1 || skip "docker indisponível"
+  # nft -c precisa de CAP_NET_ADMIN: valida num container descartável, como o caddy validate
+  run bash -c "printf '%s\\n' \"\$1\" | timeout 180 docker run --rm -i --cap-add NET_ADMIN alpine:3.20 sh -c 'apk add -q nftables >/dev/null && nft -c -f -'" _ "$output"
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }

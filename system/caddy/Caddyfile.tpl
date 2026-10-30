@@ -38,14 +38,15 @@ http://@CHATWOOT_DOMAIN@ {
 	redir https://{host}{uri} 308
 }
 
-# Criação do primeiro administrador e o console super_admin pedem a mesma senha do dashboard:
-# sem isso, quem abrisse o site primeiro criaria o super admin.
+# Criação do primeiro administrador e o console super_admin pedem uma senha PRÓPRIA (aleatória,
+# gerada pelo 30-dns-caddy.sh em /etc/caddy/chatwoot-portao.txt): sem isso, quem abrisse o site
+# primeiro criaria o super admin. Não é a senha do dashboard, que assim não fica exposta na internet.
 @CHATWOOT_DOMAIN@ {
 	bind @PUBLIC_IP@
 	@CHATWOOT_TLS@
 	@restrito path /installation* /super_admin*
 	basic_auth @restrito {
-		{$DASHBOARD_USER} {$DASHBOARD_HASH}
+		{$CHATWOOT_GATE_USER} {$CHATWOOT_GATE_HASH}
 	}
 	reverse_proxy 127.0.0.1:@CHATWOOT_PORT@
 }

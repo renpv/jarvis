@@ -22,7 +22,8 @@ e os apps do Jarvis continuam acessíveis só pela VPN.
 | D4 | Segredos em `/var/lib/chatwoot/.env` (600, do `chatwoot`): `SECRET_KEY_BASE`, `POSTGRES_PASSWORD` e `REDIS_PASSWORD` gerados pelo script; `FB_APP_ID`, `FB_APP_SECRET`, `FB_VERIFY_TOKEN`, `IG_VERIFY_TOKEN` e SMTP preenchidos pelo Renato | O mesmo padrão do `.env` do Hermes: nada secreto no Git nem no chat. |
 | D5 | `ENABLE_ACCOUNT_SIGNUP=false`, `FORCE_SSL=true`, `FRONTEND_URL=https://atendimento.renpv.com.br` | Ninguém cria conta sozinho; tudo em HTTPS. |
 | D6 | **Um Caddy só, o do sistema.** Sai o `default_bind`/`auto_https off` global; cada site declara o `bind`: os da VPN em `http://… { bind 10.8.0.1 }`, o público `atendimento.renpv.com.br { bind <IP público> }` com certificado Let's Encrypt automático | Com `auto_https off` global, o Caddy não emite certificado. Sem `default_bind`, cada site escuta só onde deve. O `jarvis-expose` passa a gravar `bind 10.8.0.1` nos apps, e o `30-dns-caddy.sh` acrescenta o `bind` nos apps já publicados. |
-| D7 | `/installation/*` (criação do primeiro administrador) e `/super_admin*` atrás do **mesmo `basic_auth` do dashboard** | Sem isso, quem abrir o site primeiro cria o super admin. É também uma segunda barreira no console de administração. |
+| D7 | `/installation/*` (criação do primeiro administrador) e `/super_admin*` atrás de um `basic_auth` com **credencial própria e aleatória** (gerada pelo `30`, lida com `sudo cat /etc/caddy/chatwoot-portao.txt`) | Sem isso, quem abrir o site primeiro cria o super admin. Não é a senha do dashboard, que assim não fica exposta a força bruta na internet. |
+| D11 | Regra **nftables** (por dono do processo): `127.0.0.1:3000` só aceita conexões do `caddy`, do `chatwoot` e do root | Sem ela, qualquer usuário local, inclusive o `hermes`, falaria direto com o Rails e pularia o portão do D7. |
 | D8 | ufw libera **80/tcp e 443/tcp** de entrada | Necessário para o HTTPS e para os webhooks do Meta. |
 | D9 | O `jarvis-backup` passa a incluir o `pg_dump` do Chatwoot e a pasta `storage` (anexos) | O backup segue enxuto: o dump, não os arquivos brutos do Postgres. |
 | D10 | No CI: `tls internal` (sem Let's Encrypt) e sem baixar nem subir as imagens do Chatwoot. O CI valida o compose, o Caddy, o firewall, o usuário e o Docker rootless | Tentativas de emissão a partir do runner gastariam o limite de falhas do Let's Encrypt **do domínio real**, e as imagens somam mais de 1 GB. |
@@ -45,7 +46,7 @@ e os apps do Jarvis continuam acessíveis só pela VPN.
 ## 5. Critérios de aceite
 
 1. `https://atendimento.renpv.com.br` abre com certificado válido. `http://` redireciona para `https://`.
-2. `/installation/onboarding` pede usuário e senha (`basic_auth`). Com eles, o Renato cria o administrador.
+2. `/installation/onboarding` pede usuário e senha (`basic_auth` próprio). Com eles, o Renato cria o administrador. Como `hermes`, `curl 127.0.0.1:3000` é recusado.
 3. `ss -tulpn` mostra 80/443 **só** no IP público e só do Caddy. `:3000` fica só em `127.0.0.1`.
 4. `hermes.jarvis.lan` e `exemplo.jarvis.lan` continuam só pela VPN. Pelo IP público, nada responde para esses nomes.
 5. Uma conversa de teste pelo widget aparece no painel.

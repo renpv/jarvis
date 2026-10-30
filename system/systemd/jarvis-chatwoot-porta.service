@@ -1,0 +1,15 @@
+# Instalado por provision/70-chatwoot.sh. Carrega a regra que fecha a porta local do Chatwoot
+# para todo usuário que não seja caddy, chatwoot ou root (system/nftables/chatwoot-porta.nft.tpl).
+[Unit]
+Description=Jarvis — porta local do Chatwoot só para o Caddy
+Before=caddy.service
+After=network-pre.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/jarvis/chatwoot-porta.nft
+ExecStop=/usr/sbin/nft delete table inet jarvis_chatwoot
+
+[Install]
+WantedBy=multi-user.target

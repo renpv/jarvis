@@ -38,6 +38,18 @@ if [[ ! -f /etc/caddy/secrets.env ]]; then
   (umask 077 && printf "DASHBOARD_USER='%s'\nDASHBOARD_HASH='%s'\n" "$ADMIN_USER" "$hash" >/etc/caddy/secrets.env)
 fi
 
+# Portão do Chatwoot (/installation e /super_admin): credencial própria e aleatória, que o Renato lê
+# com `sudo cat /etc/caddy/chatwoot-portao.txt`. Gerada uma vez, acrescentada ao secrets.env.
+if ! grep -q '^CHATWOOT_GATE_HASH=' /etc/caddy/secrets.env; then
+  senha=$(openssl rand -base64 18 | tr -d '/+=' | cut -c1-20)
+  hash=$(caddy hash-password --plaintext "$senha")
+  [[ $hash == \$2* ]] || die "não consegui gerar o hash da senha do portão do Chatwoot"
+  (umask 077 && printf "CHATWOOT_GATE_USER='%s'\nCHATWOOT_GATE_HASH='%s'\n" "$ADMIN_USER" "$hash" >>/etc/caddy/secrets.env)
+  (umask 077 && printf 'usuário: %s\nsenha: %s\n' "$ADMIN_USER" "$senha" >/etc/caddy/chatwoot-portao.txt)
+  unset senha
+  log "portão do Chatwoot criado: sudo cat /etc/caddy/chatwoot-portao.txt"
+fi
+
 install -d -m 755 /etc/caddy/apps.d
 # Apps publicados antes do Chatwoot dependiam do default_bind global, que saiu: põe o bind da VPN.
 for f in /etc/caddy/apps.d/*.caddy; do
