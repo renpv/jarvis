@@ -8,6 +8,11 @@
 	# API de administração num socket que só o usuário caddy acessa (não em localhost,
 	# onde qualquer usuário local — inclusive o hermes — poderia reconfigurar o Caddy).
 	admin unix//run/caddy/admin.sock
+	# Sem HTTP/3 (QUIC, UDP 443): o ufw só libera TCP 80/443, e os navegadores perderiam tempo
+	# tentando o QUIC anunciado antes de cair para o HTTP/2.
+	servers {
+		protocols h1 h2
+	}
 }
 
 http://hermes.@DOMAIN@ {

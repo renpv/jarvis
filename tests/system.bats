@@ -58,9 +58,18 @@ caddy_validate() {
   local hash
   # timeout: um Docker local travado não pode prender o pre-push para sempre
   hash=$(timeout 120 docker run --rm caddy:2.10 caddy hash-password --plaintext teste)
-  timeout 120 docker run --rm -v "$SANDBOX/caddy:/etc/caddy:ro" \
+  local out rc=0
+  out=$(timeout 120 docker run --rm -v "$SANDBOX/caddy:/etc/caddy:ro" \
     -e DASHBOARD_USER=renpv -e DASHBOARD_HASH="$hash" -e CHATWOOT_GATE_USER=portao -e CHATWOOT_GATE_HASH="$hash" \
-    caddy:2.10 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+    caddy:2.10 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1) || rc=$?
+  echo "$out"
+  # Sob carga, o Docker do WSL às vezes sai com erro DEPOIS de o Caddy validar: o que se testa é
+  # a configuração, e o veredito dela é a última linha do próprio Caddy.
+  if ((rc != 0)) && [[ $(tail -1 <<<"$out") == "Valid configuration" ]]; then
+    echo "(docker saiu com $rc depois de o Caddy validar: falha do Docker, não da configuração)"
+    return 0
+  fi
+  return "$rc"
 }
 
 @test "Caddyfile é válido sem nenhum app publicado" {
@@ -151,7 +160,9 @@ caddy_validate() {
   [[ "$output" == *"ip6 daddr ::1 tcp dport 3000 meta skuid != { 0, 111, 222 } reject with tcp reset"* ]]
   timeout 20 docker info >/dev/null 2>&1 || skip "docker indisponível"
   # nft -c precisa de CAP_NET_ADMIN: valida num container descartável, como o caddy validate
-  run bash -c "printf '%s\\n' \"\$1\" | timeout 180 docker run --rm -i --cap-add NET_ADMIN alpine:3.20 sh -c 'apk add -q nftables >/dev/null && nft -c -f -'" _ "$output"
+  run bash -c "printf '%s\\n' \"\$1\" | timeout 180 docker run --rm -i --cap-add NET_ADMIN alpine:3.20 sh -c 'for i in 1 2 3; do apk add -q nftables >/dev/null 2>&1 && break; sleep 2; done; command -v nft >/dev/null || exit 77; nft -c -f -'" _ "$output"
+  # 77 = sem rede para instalar o nftables no container: não diz nada sobre a regra
+  [ "$status" -ne 77 ] || skip "sem rede para instalar o nftables no container"
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
 
@@ -165,4 +176,10 @@ caddy_validate() {
   ! grep -q '^ExecStop=' "$f"
   grep -qx 'ExecReload=/usr/sbin/nft -f /etc/jarvis/chatwoot-porta.nft' "$f"
   ! grep -q 'systemctl restart jarvis-chatwoot-porta' "$REPO_ROOT/provision/70-chatwoot.sh"
+}
+
+@test "Caddy sem HTTP/3: não escuta em UDP 443 (o ufw só libera TCP; os navegadores perderiam tempo tentando QUIC)" {
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
+  global=$(sed -n '/^{$/,/^}$/p' <<<"$output")
+  [[ "$global" == *"protocols h1 h2"* ]] || { echo "$global"; return 1; }
 }
