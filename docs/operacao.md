@@ -92,6 +92,8 @@ Não rode `chown -R` depois de restaurar: o `tar` como root já devolve os donos
 inclusive os UIDs "estranhos" (300000+) dos arquivos criados pelos containers rootless, que um
 `chown -R hermes` estragaria.
 
+**Chatwoot:** o backup leva o `pg_dump` do banco e a pasta `storage` (guia 90). Numa VPS nova, rode o `70-chatwoot.sh` antes de restaurar o dump.
+
 **O que NÃO está no backup:** as chaves do WireGuard (os dispositivos são adicionados de novo),
 `/etc/caddy/secrets.env` (o `30-dns-caddy.sh` pede a senha de novo), o clone `/opt/jarvis`
 (vem do GitHub) e, dentro de `.hermes`, o que o instalador do Hermes refaz: `hermes-agent/`

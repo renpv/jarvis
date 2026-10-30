@@ -12,7 +12,7 @@ setup() {
 @test "publica app válido usando o modelo fixo e recarrega" {
   run "$EXPOSE" notas 8101
   [ "$status" -eq 0 ]
-  expected=$'http://notas.jarvis.lan {\n\treverse_proxy 127.0.0.1:8101\n}'
+  expected=$'http://notas.jarvis.lan {\n\tbind 10.8.0.1\n\treverse_proxy 127.0.0.1:8101\n}'
   [ "$(cat "$APPS_DIR/notas.caddy")" = "$expected" ]
   [ -f "$SANDBOX/reloaded" ]
 }
@@ -77,6 +77,7 @@ setup() {
 @test "constantes do jarvis-expose batem com vars.sh" {
   source "$REPO_ROOT/provision/vars.sh"
   grep -qx "DOMAIN=$DOMAIN" "$EXPOSE"
+  grep -qx "BIND=$WG_SERVER_IP" "$EXPOSE"
   grep -qx "PORT_MIN=$APP_PORT_MIN" "$EXPOSE"
   grep -qx "PORT_MAX=$APP_PORT_MAX" "$EXPOSE"
 }

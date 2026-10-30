@@ -39,7 +39,24 @@ if [[ ! -f /etc/caddy/secrets.env ]]; then
 fi
 
 install -d -m 755 /etc/caddy/apps.d
-install_rendered /etc/caddy/Caddyfile 644 root:root "$SYSTEM_DIR/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT
+# Apps publicados antes do Chatwoot dependiam do default_bind global, que saiu: põe o bind da VPN.
+for f in /etc/caddy/apps.d/*.caddy; do
+  [[ -f $f ]] || continue
+  if ! grep -qE '^[[:space:]]+bind ' "$f"; then
+    sed -i "1a\\\tbind $WG_SERVER_IP" "$f"
+    log "bind da VPN acrescentado em $f"
+  fi
+done
+PUBLIC_IP=$(ip_publico)
+_is_ipv4 "$PUBLIC_IP" || die "não consegui descobrir o IP público; defina PUBLIC_IP em vars.sh"
+# No CI, certificado interno: tentar o Let's Encrypt a partir do runner gastaria o limite de
+# falhas de validação do domínio real.
+# shellcheck disable=SC2034  # usado pelo render via nome
+CHATWOOT_TLS=""
+# shellcheck disable=SC2034
+if [[ ${JARVIS_CI:-} == 1 ]]; then CHATWOOT_TLS="tls internal"; fi
+install_rendered /etc/caddy/Caddyfile 644 root:root "$SYSTEM_DIR/caddy/Caddyfile.tpl" \
+  WG_SERVER_IP DOMAIN DASHBOARD_PORT PUBLIC_IP CHATWOOT_DOMAIN CHATWOOT_PORT CHATWOOT_TLS
 install_rendered /etc/systemd/system/caddy.service.d/jarvis.conf 644 root:root \
   "$SYSTEM_DIR/systemd/caddy-override.conf.tpl" WG_IF
 # shellcheck disable=SC1091  # arquivo só existe na VPS
@@ -49,17 +66,18 @@ systemctl daemon-reload
 systemctl enable caddy
 systemctl restart caddy
 
-log "firewall: DNS e HTTP só pela VPN"
+log "firewall: DNS e HTTP da VPN; 80/443 públicos só para o Chatwoot"
 ufw allow in on "$WG_IF" to "$WG_SERVER_IP" port 53 >/dev/null
 ufw allow in on "$WG_IF" to "$WG_SERVER_IP" port 80 proto tcp >/dev/null
+ufw allow to "$PUBLIC_IP" port 80,443 proto tcp >/dev/null
 
 log "verificando"
 [[ $(dig +short @"$WG_SERVER_IP" "hermes.$DOMAIN") == "$WG_SERVER_IP" ]] || die "DNS não resolve hermes.$DOMAIN"
 [[ -n $(dig +short @"$WG_SERVER_IP" github.com) ]] || die "DNS não encaminha nomes externos"
 code=$(curl -s -o /dev/null -w '%{http_code}' --resolve "hermes.$DOMAIN:80:$WG_SERVER_IP" "http://hermes.$DOMAIN/")
 [[ $code == 401 ]] || die "esperava 401 (pedido de senha) do Caddy, veio $code"
-porta80=$(ss -Htln 'sport = :80' | awk '{print $4}')
-if [[ -n $porta80 ]] && grep -qv "^$WG_SERVER_IP:" <<<"$porta80"; then
-  die "algo escuta na porta 80 fora do IP da VPN"
-fi
-ok "DNS e Caddy ativos só na VPN"
+fora=$(ss -Htln '( sport = :80 or sport = :443 )' | awk '{print $4}' | grep -vE "^($WG_SERVER_IP|$PUBLIC_IP):" || true)
+[[ -z $fora ]] || die "algo escuta em 80/443 fora da VPN e do IP público: $fora"
+code=$(curl -s -o /dev/null -w '%{http_code}' --resolve "hermes.$DOMAIN:80:$PUBLIC_IP" "http://hermes.$DOMAIN/" || true)
+[[ $code == 000 || $code == 308 || $code == 404 ]] || die "o dashboard respondeu ($code) pelo IP público"
+ok "DNS e dashboard só na VPN; Caddy público só para $CHATWOOT_DOMAIN ($PUBLIC_IP)"

@@ -1,0 +1,59 @@
+# Chatwoot — instalado por provision/70-chatwoot.sh em $CHATWOOT_DIR, rodando no Docker rootless do
+# usuário chatwoot. Os segredos e o domínio vêm do .env ao lado (modo 600, fora do Git).
+# Atualizar a versão = trocar tag e digest aqui (imagem com pelo menos 14 dias), PR, deploy e
+# `sudo provision/70-chatwoot.sh` (que roda o db:chatwoot_prepare). Base: o compose oficial.
+name: chatwoot
+
+x-chatwoot: &chatwoot
+  image: chatwoot/chatwoot:v4.18.0@sha256:b419dded7e9d2f54a24fd427b74ba7e6069d601b500618045c1eb6c01a1cc9a1
+  env_file: .env
+  environment: &chatwoot-env
+    RAILS_ENV: production
+    NODE_ENV: production
+    INSTALLATION_ENV: docker
+    FRONTEND_URL: https://${CHATWOOT_DOMAIN}
+    ENABLE_ACCOUNT_SIGNUP: "false"
+    FORCE_SSL: "true"
+    RAILS_LOG_TO_STDOUT: "true"
+    ACTIVE_STORAGE_SERVICE: local
+    POSTGRES_HOST: postgres
+    POSTGRES_USERNAME: chatwoot
+    POSTGRES_DATABASE: chatwoot
+    REDIS_URL: redis://redis:6379
+  volumes:
+    - ./storage:/app/storage
+  depends_on:
+    - postgres
+    - redis
+  restart: unless-stopped
+
+services:
+  rails:
+    <<: *chatwoot
+    entrypoint: docker/entrypoints/rails.sh
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+    # Só no loopback: com Docker, porta publicada fura o ufw. O Caddy é quem publica.
+    ports:
+      - "127.0.0.1:${CHATWOOT_PORT}:3000"
+
+  sidekiq:
+    <<: *chatwoot
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg16@sha256:7b822b0aac60967beb1ea5e576b8602c94c300a157d187f385ae3e0da199b90a
+    environment:
+      POSTGRES_DB: chatwoot
+      POSTGRES_USER: chatwoot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.10-alpine@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    env_file: .env
+    volumes:
+      - ./redis:/data
+    restart: unless-stopped

@@ -5,6 +5,8 @@ setup() {
   source "$REPO_ROOT/provision/lib.sh"
   WG_SERVER_PRIVKEY=chave-de-teste
   HERMES_UID=1234
+  PUBLIC_IP=203.0.113.10 CHATWOOT_TLS=""
+  CADDY_VARS=(WG_SERVER_IP DOMAIN DASHBOARD_PORT PUBLIC_IP CHATWOOT_DOMAIN CHATWOOT_PORT CHATWOOT_TLS)
 }
 
 @test "existem todos os modelos esperados" {
@@ -64,7 +66,7 @@ caddy_validate() {
 @test "Caddyfile é válido sem nenhum app publicado" {
   timeout 20 docker info >/dev/null 2>&1 || skip "docker indisponível"
   mkdir -p "$SANDBOX/caddy/apps.d"
-  render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT > "$SANDBOX/caddy/Caddyfile"
+  render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}" > "$SANDBOX/caddy/Caddyfile"
   run caddy_validate
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
@@ -72,14 +74,14 @@ caddy_validate() {
 @test "Caddyfile é válido com um app publicado pelo jarvis-expose" {
   timeout 20 docker info >/dev/null 2>&1 || skip "docker indisponível"
   mkdir -p "$SANDBOX/caddy/apps.d"
-  render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT > "$SANDBOX/caddy/Caddyfile"
+  render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}" > "$SANDBOX/caddy/Caddyfile"
   APPS_DIR="$SANDBOX/caddy/apps.d" "$REPO_ROOT/bin/jarvis-expose" exemplo 8101
   run caddy_validate
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
 
 @test "API admin do Caddy fica num socket só do usuário caddy (não em localhost)" {
-  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
   [[ "$output" == *"admin unix//run/caddy/admin.sock"* ]]
   [[ "$output" != *"localhost:2019"* ]]
   run render "$REPO_ROOT/system/systemd/caddy-override.conf.tpl" WG_IF
@@ -88,8 +90,52 @@ caddy_validate() {
 }
 
 @test "dashboard: Caddy recusa Origin estranha e reescreve a certa para o bind do dashboard" {
-  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
   [[ "$output" == *"not header Origin http://hermes.jarvis.lan"* ]]
   [[ "$output" == *"respond @outra_origem"*"403"* ]]
   [[ "$output" == *"header_up Origin http://127.0.0.1:9119"* ]]
+}
+
+@test "Caddy: nada global prende o bind nem desliga o HTTPS; cada site declara onde escuta" {
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
+  output=$(grep -vE '^[[:space:]]*#' <<<"$output")
+  [[ "$output" != *"default_bind"* ]]
+  [[ "$output" != *"auto_https off"* ]]
+  sites=$(grep -cE '^[^#[:space:]{}][^{]*\{$' <<<"$output")
+  binds=$(grep -cE '^[[:space:]]+bind ' <<<"$output")
+  [ "$sites" -ge 2 ] && [ "$sites" -eq "$binds" ] || { echo "sites=$sites binds=$binds"; return 1; }
+}
+
+@test "Caddy: dashboard e apps só na VPN; Chatwoot público com HTTPS no IP público" {
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
+  grep -A1 -x 'http://hermes.jarvis.lan {' <<<"$output" | grep -qx $'\tbind 10.8.0.1'
+  grep -A1 -x 'atendimento.renpv.com.br {' <<<"$output" | grep -qx $'\tbind 203.0.113.10'
+  [[ "$output" == *"reverse_proxy 127.0.0.1:3000"* ]]
+  # a 80 pública precisa de site próprio (desafio do Let's Encrypt e redirect para https)
+  grep -A2 -x 'http://atendimento.renpv.com.br {' <<<"$output" | grep -qx $'\tbind 203.0.113.10'
+  grep -A2 -x 'http://atendimento.renpv.com.br {' <<<"$output" | grep -qx $'\tredir https://{host}{uri} 308'
+
+}
+
+@test "Caddy: criação do primeiro admin e o super_admin do Chatwoot pedem a senha do dashboard" {
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
+  bloco=$(sed -n '/^atendimento.renpv.com.br {/,/^}/p' <<<"$output")
+  [[ "$bloco" == *"@restrito path /installation* /super_admin*"* ]]
+  [[ "$bloco" == *"basic_auth @restrito"* ]]
+  [[ "$bloco" == *'{$DASHBOARD_USER} {$DASHBOARD_HASH}'* ]]
+}
+
+@test "Caddy: no CI o Chatwoot usa tls internal (não gasta o limite do Let's Encrypt do domínio real)" {
+  CHATWOOT_TLS="tls internal"
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
+  sed -n '/^atendimento.renpv.com.br {/,/^}/p' <<<"$output" | grep -qx $'\ttls internal'
+}
+
+@test "Caddyfile com Chatwoot em tls internal é válido" {
+  timeout 20 docker info >/dev/null 2>&1 || skip "docker indisponível"
+  mkdir -p "$SANDBOX/caddy/apps.d"
+  CHATWOOT_TLS="tls internal"
+  render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}" > "$SANDBOX/caddy/Caddyfile"
+  run caddy_validate
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }

@@ -22,3 +22,10 @@ WG_ENDPOINT=${WG_ENDPOINT:-}                    # vazio = descobre o IP público
 DASHBOARD_PORT=${DASHBOARD_PORT:-9119}
 APP_PORT_MIN=${APP_PORT_MIN:-8100}
 APP_PORT_MAX=${APP_PORT_MAX:-8199}
+
+# Chatwoot (atendimento público: único serviço da VPS fora da VPN — docs/specs/2026-10-30-chatwoot-design.md)
+CHATWOOT_USER=${CHATWOOT_USER:-chatwoot}        # usuário de sistema com Docker rootless próprio
+CHATWOOT_DIR=${CHATWOOT_DIR:-/var/lib/chatwoot} # home: .env, compose.yaml, storage, postgres, redis
+CHATWOOT_DOMAIN=${CHATWOOT_DOMAIN:-atendimento.renpv.com.br}
+CHATWOOT_PORT=${CHATWOOT_PORT:-3000}            # o Rails escuta só em 127.0.0.1; o Caddy publica
+PUBLIC_IP=${PUBLIC_IP:-}                        # vazio = descobre pela rota padrão

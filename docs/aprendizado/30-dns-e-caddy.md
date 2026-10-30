@@ -18,7 +18,7 @@ dig +short @10.8.0.1 github.com          # IPs públicos
 
 ## Caddy
 
-Proxy reverso que escuta **só** em `10.8.0.1:80`:
+Proxy reverso. Até 30/10 escutava só em `10.8.0.1:80`. Desde o Chatwoot (guia 90), cada site declara o próprio `bind`: os da tabela abaixo ficam em `10.8.0.1`, e só `atendimento.renpv.com.br` escuta no IP público (80/443, com HTTPS automático).
 
 | Endereço | Para onde vai | Proteção |
 |---|---|---|
