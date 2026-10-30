@@ -104,3 +104,48 @@ EOT
   [ "$status" -eq 0 ]
   [ -f "$SANDBOX/bk/jarvis-daily-2026-10-17.tar.zst" ]
 }
+
+@test "com o Chatwoot instalado, o backup leva o dump do banco e os anexos (não os arquivos do Postgres)" {
+  export CHATWOOT_DIR="$SANDBOX/chatwoot"
+  mkdir -p "$CHATWOOT_DIR/storage/ab" "$CHATWOOT_DIR/postgres"
+  echo anexo > "$CHATWOOT_DIR/storage/ab/foto.jpg"
+  echo bruto > "$CHATWOOT_DIR/postgres/PG_VERSION"
+  touch "$CHATWOOT_DIR/compose.yaml"
+  export CHATWOOT_DUMP_CMD="echo DUMP-DO-BANCO"
+  export JARVIS_DATE=2026-10-17
+  run "$BACKUP"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  f="$SANDBOX/bk/jarvis-daily-2026-10-17.tar.zst"
+  list=$(tar -I zstd -tf "$f")
+  [[ $list == *"chatwoot/chatwoot.dump"* ]]
+  [[ $list == *"chatwoot/storage/ab/foto.jpg"* ]]
+  [[ $list != *"PG_VERSION"* ]]
+  [ "$(tar -I zstd -xOf "$f" chatwoot/chatwoot.dump)" = "DUMP-DO-BANCO" ]
+}
+
+@test "dump do Chatwoot falhando: backup falha (o timer fica vermelho) e os serviços voltam" {
+  export CHATWOOT_DIR="$SANDBOX/chatwoot"
+  mkdir -p "$CHATWOOT_DIR/storage"
+  touch "$CHATWOOT_DIR/compose.yaml"
+  export CHATWOOT_DUMP_CMD="false"
+  run "$BACKUP"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"dump do Chatwoot"* ]]
+  [ ! -e "$SANDBOX/bk/jarvis-daily-$(date +%F).tar.zst" ]
+}
+
+@test "sem o Chatwoot instalado, o backup não muda" {
+  export CHATWOOT_DIR="$SANDBOX/nao-existe" JARVIS_DATE=2026-10-17
+  run "$BACKUP"
+  [ "$status" -eq 0 ]
+  [[ $(tar -I zstd -tf "$SANDBOX/bk/jarvis-daily-2026-10-17.tar.zst") != *chatwoot* ]]
+}
+
+@test "Chatwoot instalado pelo CI sem containers (marca .ci-sem-containers): backup pula o dump" {
+  export CHATWOOT_DIR="$SANDBOX/chatwoot" JARVIS_DATE=2026-10-17
+  mkdir -p "$CHATWOOT_DIR"
+  touch "$CHATWOOT_DIR/compose.yaml" "$CHATWOOT_DIR/.ci-sem-containers"
+  export CHATWOOT_DUMP_CMD="false"
+  run "$BACKUP"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}

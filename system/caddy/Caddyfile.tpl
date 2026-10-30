@@ -1,14 +1,22 @@
-# Gerado por provision/30-dns-caddy.sh. O Caddy escuta APENAS no IP da VPN.
-# O usuário e o hash da senha do dashboard vêm de /etc/caddy/secrets.env (fora do Git).
+# Gerado por provision/30-dns-caddy.sh. Cada site declara onde escuta (bind):
+#   - VPN (@WG_SERVER_IP@), só HTTP: dashboard do Hermes e apps do Jarvis;
+#   - IP público, com HTTPS automático: só o Chatwoot.
+# Não use default_bind nem auto_https off globais: o primeiro vaza para os emissores de certificado
+# e o segundo desliga o HTTPS do Chatwoot. O usuário e o hash da senha do dashboard vêm de
+# /etc/caddy/secrets.env (fora do Git).
 {
-	default_bind @WG_SERVER_IP@
-	auto_https off
 	# API de administração num socket que só o usuário caddy acessa (não em localhost,
 	# onde qualquer usuário local — inclusive o hermes — poderia reconfigurar o Caddy).
 	admin unix//run/caddy/admin.sock
+	# Sem HTTP/3 (QUIC, UDP 443): o ufw só libera TCP 80/443, e os navegadores perderiam tempo
+	# tentando o QUIC anunciado antes de cair para o HTTP/2.
+	servers {
+		protocols h1 h2
+	}
 }
 
 http://hermes.@DOMAIN@ {
+	bind @WG_SERVER_IP@
 	basic_auth {
 		{$DASHBOARD_USER} {$DASHBOARD_HASH}
 	}
@@ -26,5 +34,27 @@ http://hermes.@DOMAIN@ {
 	}
 }
 
-# Apps publicados pelo Hermes (um arquivo por app, gerado por jarvis-expose).
+# Chatwoot: o único site público, com certificado do Let's Encrypt automático.
+# O http:// precisa de site próprio com bind no IP público: com outro site já na porta 80 (o da VPN),
+# o Caddy põe o redirect automático naquele servidor, e a 80 pública (desafio do Let's Encrypt e
+# redirect para https) ficaria fechada.
+http://@CHATWOOT_DOMAIN@ {
+	bind @PUBLIC_IP@
+	redir https://{host}{uri} 308
+}
+
+# Criação do primeiro administrador e o console super_admin pedem uma senha PRÓPRIA (aleatória,
+# gerada pelo 30-dns-caddy.sh em /etc/caddy/chatwoot-portao.txt): sem isso, quem abrisse o site
+# primeiro criaria o super admin. Não é a senha do dashboard, que assim não fica exposta na internet.
+@CHATWOOT_DOMAIN@ {
+	bind @PUBLIC_IP@
+	@CHATWOOT_TLS@
+	@restrito path /installation* /super_admin*
+	basic_auth @restrito {
+		{$CHATWOOT_GATE_USER} {$CHATWOOT_GATE_HASH}
+	}
+	reverse_proxy 127.0.0.1:@CHATWOOT_PORT@
+}
+
+# Apps publicados pelo Hermes (um arquivo por app, gerado por jarvis-expose, com bind na VPN).
 import /etc/caddy/apps.d/*.caddy

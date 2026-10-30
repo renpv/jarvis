@@ -146,9 +146,17 @@ verdes() { checks "portao-1 / lint|completed|success" "integracao|completed|succ
   novo_commit provision/vars.sh
   verdes
   run bash -c "printf 's\n' | '$JARVIS' deploy"
-  for s in 10-sistema 20-wireguard 30-dns-caddy 40-hermes 50-docker-rootless 60-backup; do
+  for s in 10-sistema 20-wireguard 30-dns-caddy 40-hermes 50-docker-rootless 60-backup 70-chatwoot; do
     [[ "$output" == *"sudo provision/$s.sh"* ]] || { echo "faltou $s"; return 1; }
   done
+}
+
+@test "mudança no compose do Chatwoot sugere o 70-chatwoot" {
+  novo_commit system/chatwoot/compose.yaml
+  verdes
+  run bash -c "printf 's\n' | '$JARVIS' deploy"
+  [[ "$output" == *"sudo provision/70-chatwoot.sh"* ]]
+  [[ "$output" != *"sudo provision/30-dns-caddy.sh"* ]]
 }
 
 @test "mudança em hermes/ oferece o jarvis apply" {

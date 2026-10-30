@@ -245,3 +245,52 @@ setup() {
   [[ "$output" == *"conflito"* ]]
   [ "$(cat "$JARVIS_REPO/hermes/config.yaml")" = $'model: repo\nfim: 1' ]
 }
+
+@test "import não desfaz skill nova que chegou pelo deploy (caso real de 2026-10-24)" {
+  "$JARVIS" apply
+  # o deploy trouxe uma skill reescrita, com scripts novos; o apply ainda não rodou...
+  echo "skill v2" > "$JARVIS_REPO/hermes/skills/jarvis/exemplo/SKILL.md"
+  mkdir -p "$JARVIS_REPO/hermes/skills/jarvis/exemplo/scripts"
+  echo "script" > "$JARVIS_REPO/hermes/skills/jarvis/exemplo/scripts/rodar"
+  # ...e o import roda com o Hermes ainda na versão antiga
+  run "$JARVIS" import
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ "$(cat "$JARVIS_REPO/hermes/skills/jarvis/exemplo/SKILL.md")" = "skill v2" ]
+  [ "$(cat "$JARVIS_REPO/hermes/skills/jarvis/exemplo/scripts/rodar")" = "script" ]
+}
+
+@test "import traz skill editada e skill criada pelo Hermes, mantendo as do repo" {
+  printf 'passo 1\npasso 2\npasso 3\n' > "$JARVIS_REPO/hermes/skills/jarvis/exemplo/SKILL.md"
+  "$JARVIS" apply
+  printf 'passo 1\npasso 2\npasso 3\nlição do Hermes\n' > "$HERMES_HOME/skills/jarvis/exemplo/SKILL.md"
+  mkdir -p "$HERMES_HOME/skills/jarvis/nova"
+  echo "criada pelo Hermes" > "$HERMES_HOME/skills/jarvis/nova/SKILL.md"
+  printf 'passo 1 (repo)\npasso 2\npasso 3\n' > "$JARVIS_REPO/hermes/skills/jarvis/exemplo/SKILL.md"
+  run "$JARVIS" import
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ "$(cat "$JARVIS_REPO/hermes/skills/jarvis/exemplo/SKILL.md")" = $'passo 1 (repo)\npasso 2\npasso 3\nlição do Hermes' ]
+  [ "$(cat "$JARVIS_REPO/hermes/skills/jarvis/nova/SKILL.md")" = "criada pelo Hermes" ]
+}
+
+@test "import respeita remoções: o que o Hermes apagou some do repo; o que o repo apagou não volta" {
+  mkdir -p "$JARVIS_REPO/hermes/skills/jarvis/velha" "$JARVIS_REPO/hermes/skills/jarvis/outra"
+  echo v > "$JARVIS_REPO/hermes/skills/jarvis/velha/SKILL.md"
+  echo o > "$JARVIS_REPO/hermes/skills/jarvis/outra/SKILL.md"
+  "$JARVIS" apply
+  rm -r "$HERMES_HOME/skills/jarvis/velha"        # o Hermes apagou
+  rm -r "$JARVIS_REPO/hermes/skills/jarvis/outra" # o repo apagou (deploy), apply pendente
+  run "$JARVIS" import
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [ ! -e "$JARVIS_REPO/hermes/skills/jarvis/velha" ]
+  [ ! -e "$JARVIS_REPO/hermes/skills/jarvis/outra" ]
+}
+
+@test "import com conflito numa skill (um lado apagou, o outro editou): aborta e não toca o repo" {
+  "$JARVIS" apply
+  rm -r "$JARVIS_REPO/hermes/skills/jarvis/exemplo"
+  echo "editada pelo Hermes" > "$HERMES_HOME/skills/jarvis/exemplo/SKILL.md"
+  run "$JARVIS" import
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"conflito"*"skills/jarvis/exemplo/SKILL.md"* ]]
+  [ ! -e "$JARVIS_REPO/hermes/skills/jarvis/exemplo" ]
+}

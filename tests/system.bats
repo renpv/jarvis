@@ -5,6 +5,8 @@ setup() {
   source "$REPO_ROOT/provision/lib.sh"
   WG_SERVER_PRIVKEY=chave-de-teste
   HERMES_UID=1234
+  PUBLIC_IP=203.0.113.10 CHATWOOT_TLS="" CADDY_UID=111 CHATWOOT_UID=222
+  CADDY_VARS=(WG_SERVER_IP DOMAIN DASHBOARD_PORT PUBLIC_IP CHATWOOT_DOMAIN CHATWOOT_PORT CHATWOOT_TLS)
 }
 
 @test "existem todos os modelos esperados" {
@@ -56,15 +58,24 @@ caddy_validate() {
   local hash
   # timeout: um Docker local travado não pode prender o pre-push para sempre
   hash=$(timeout 120 docker run --rm caddy:2.10 caddy hash-password --plaintext teste)
-  timeout 120 docker run --rm -v "$SANDBOX/caddy:/etc/caddy:ro" \
-    -e DASHBOARD_USER=renpv -e DASHBOARD_HASH="$hash" \
-    caddy:2.10 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+  local out rc=0
+  out=$(timeout 120 docker run --rm -v "$SANDBOX/caddy:/etc/caddy:ro" \
+    -e DASHBOARD_USER=renpv -e DASHBOARD_HASH="$hash" -e CHATWOOT_GATE_USER=portao -e CHATWOOT_GATE_HASH="$hash" \
+    caddy:2.10 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1) || rc=$?
+  echo "$out"
+  # Sob carga, o Docker do WSL às vezes sai com erro DEPOIS de o Caddy validar: o que se testa é
+  # a configuração, e o veredito dela é a última linha do próprio Caddy.
+  if ((rc != 0)) && [[ $(tail -1 <<<"$out") == "Valid configuration" ]]; then
+    echo "(docker saiu com $rc depois de o Caddy validar: falha do Docker, não da configuração)"
+    return 0
+  fi
+  return "$rc"
 }
 
 @test "Caddyfile é válido sem nenhum app publicado" {
   timeout 20 docker info >/dev/null 2>&1 || skip "docker indisponível"
   mkdir -p "$SANDBOX/caddy/apps.d"
-  render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT > "$SANDBOX/caddy/Caddyfile"
+  render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}" > "$SANDBOX/caddy/Caddyfile"
   run caddy_validate
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
@@ -72,14 +83,14 @@ caddy_validate() {
 @test "Caddyfile é válido com um app publicado pelo jarvis-expose" {
   timeout 20 docker info >/dev/null 2>&1 || skip "docker indisponível"
   mkdir -p "$SANDBOX/caddy/apps.d"
-  render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT > "$SANDBOX/caddy/Caddyfile"
+  render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}" > "$SANDBOX/caddy/Caddyfile"
   APPS_DIR="$SANDBOX/caddy/apps.d" "$REPO_ROOT/bin/jarvis-expose" exemplo 8101
   run caddy_validate
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
 
 @test "API admin do Caddy fica num socket só do usuário caddy (não em localhost)" {
-  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
   [[ "$output" == *"admin unix//run/caddy/admin.sock"* ]]
   [[ "$output" != *"localhost:2019"* ]]
   run render "$REPO_ROOT/system/systemd/caddy-override.conf.tpl" WG_IF
@@ -88,8 +99,87 @@ caddy_validate() {
 }
 
 @test "dashboard: Caddy recusa Origin estranha e reescreve a certa para o bind do dashboard" {
-  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" WG_SERVER_IP DOMAIN DASHBOARD_PORT
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
   [[ "$output" == *"not header Origin http://hermes.jarvis.lan"* ]]
   [[ "$output" == *"respond @outra_origem"*"403"* ]]
   [[ "$output" == *"header_up Origin http://127.0.0.1:9119"* ]]
+}
+
+@test "Caddy: nada global prende o bind nem desliga o HTTPS; cada site declara onde escuta" {
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
+  output=$(grep -vE '^[[:space:]]*#' <<<"$output")
+  [[ "$output" != *"default_bind"* ]]
+  [[ "$output" != *"auto_https off"* ]]
+  sites=$(grep -cE '^[^#[:space:]{}][^{]*\{$' <<<"$output")
+  binds=$(grep -cE '^[[:space:]]+bind ' <<<"$output")
+  [ "$sites" -ge 2 ] && [ "$sites" -eq "$binds" ] || { echo "sites=$sites binds=$binds"; return 1; }
+}
+
+@test "Caddy: dashboard e apps só na VPN; Chatwoot público com HTTPS no IP público" {
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
+  grep -A1 -x 'http://hermes.jarvis.lan {' <<<"$output" | grep -qx $'\tbind 10.8.0.1'
+  grep -A1 -x 'atendimento.renpv.com.br {' <<<"$output" | grep -qx $'\tbind 203.0.113.10'
+  [[ "$output" == *"reverse_proxy 127.0.0.1:3000"* ]]
+  # a 80 pública precisa de site próprio (desafio do Let's Encrypt e redirect para https)
+  grep -A2 -x 'http://atendimento.renpv.com.br {' <<<"$output" | grep -qx $'\tbind 203.0.113.10'
+  grep -A2 -x 'http://atendimento.renpv.com.br {' <<<"$output" | grep -qx $'\tredir https://{host}{uri} 308'
+
+}
+
+@test "Caddy: criação do primeiro admin e o super_admin do Chatwoot pedem uma senha própria" {
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
+  bloco=$(sed -n '/^atendimento.renpv.com.br {/,/^}/p' <<<"$output")
+  [[ "$bloco" == *"@restrito path /installation* /super_admin*"* ]]
+  [[ "$bloco" == *"basic_auth @restrito"* ]]
+  # credencial própria e aleatória: a senha do dashboard não fica exposta a força bruta na internet
+  [[ "$bloco" == *'{$CHATWOOT_GATE_USER} {$CHATWOOT_GATE_HASH}'* ]]
+  [[ "$bloco" != *'DASHBOARD_'* ]]
+}
+
+@test "Caddy: no CI o Chatwoot usa tls internal (não gasta o limite do Let's Encrypt do domínio real)" {
+  CHATWOOT_TLS="tls internal"
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
+  sed -n '/^atendimento.renpv.com.br {/,/^}/p' <<<"$output" | grep -qx $'\ttls internal'
+}
+
+@test "Caddyfile com Chatwoot em tls internal é válido" {
+  timeout 20 docker info >/dev/null 2>&1 || skip "docker indisponível"
+  mkdir -p "$SANDBOX/caddy/apps.d"
+  CHATWOOT_TLS="tls internal"
+  render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}" > "$SANDBOX/caddy/Caddyfile"
+  run caddy_validate
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "nftables: só caddy, chatwoot e root abrem a porta local do Chatwoot (o hermes não pula o Caddy)" {
+  CADDY_UID=111 CHATWOOT_UID=222
+  run render "$REPO_ROOT/system/nftables/chatwoot-porta.nft.tpl" CHATWOOT_PORT CADDY_UID CHATWOOT_UID
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+  [[ "$output" == *"type filter hook output"* ]]
+  [[ "$output" == *"ip daddr 127.0.0.1 tcp dport 3000 meta skuid != { 0, 111, 222 } reject with tcp reset"* ]]
+  [[ "$output" == *"ip6 daddr ::1 tcp dport 3000 meta skuid != { 0, 111, 222 } reject with tcp reset"* ]]
+  timeout 20 docker info >/dev/null 2>&1 || skip "docker indisponível"
+  # nft -c precisa de CAP_NET_ADMIN: valida num container descartável, como o caddy validate
+  run bash -c "printf '%s\\n' \"\$1\" | timeout 180 docker run --rm -i --cap-add NET_ADMIN alpine:3.20 sh -c 'for i in 1 2 3; do apk add -q nftables >/dev/null 2>&1 && break; sleep 2; done; command -v nft >/dev/null || exit 77; nft -c -f -'" _ "$output"
+  # 77 = sem rede para instalar o nftables no container: não diz nada sobre a regra
+  [ "$status" -ne 77 ] || skip "sem rede para instalar o nftables no container"
+  [ "$status" -eq 0 ] || { echo "$output"; return 1; }
+}
+
+@test "regra da porta do Chatwoot falha fechada: carrega antes das sessões e serviços, sem ExecStop" {
+  f="$REPO_ROOT/system/systemd/jarvis-chatwoot-porta.service"
+  grep -qx 'DefaultDependencies=no' "$f"
+  grep -qE '^Before=.*systemd-logind\.service' "$f"
+  grep -qE '^Before=.*systemd-user-sessions\.service' "$f"
+  grep -qE '^Before=.*hermes-gateway\.service' "$f"
+  grep -qE '^Before=.*caddy\.service' "$f"
+  ! grep -q '^ExecStop=' "$f"
+  grep -qx 'ExecReload=/usr/sbin/nft -f /etc/jarvis/chatwoot-porta.nft' "$f"
+  ! grep -q 'systemctl restart jarvis-chatwoot-porta' "$REPO_ROOT/provision/70-chatwoot.sh"
+}
+
+@test "Caddy sem HTTP/3: não escuta em UDP 443 (o ufw só libera TCP; os navegadores perderiam tempo tentando QUIC)" {
+  run render "$REPO_ROOT/system/caddy/Caddyfile.tpl" "${CADDY_VARS[@]}"
+  global=$(sed -n '/^{$/,/^}$/p' <<<"$output")
+  [[ "$global" == *"protocols h1 h2"* ]] || { echo "$global"; return 1; }
 }

@@ -104,3 +104,15 @@ setup() {
   [[ "$output" == *"HOME=$SANDBOX/hermes"* ]]
   [[ "$output" == *"HERMES_HOME=$SANDBOX/hermes/.hermes"* ]]
 }
+
+@test "as_usuario roda como outro usuário de serviço, com ambiente limpo e a home dele" {
+  mkdir -p "$SANDBOX/bin"
+  printf '#!/usr/bin/env bash\nshift 2\nexec "$@"\n' > "$SANDBOX/bin/sudo"
+  chmod +x "$SANDBOX/bin/sudo"
+  export SEGREDO_DO_ADMIN=x
+  PATH="$SANDBOX/bin:$PATH" run as_usuario "$(id -un)" "$SANDBOX/chatwoot" /usr/bin/env
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"SEGREDO_DO_ADMIN"* ]]
+  [[ "$output" == *"HOME=$SANDBOX/chatwoot"* ]]
+  [[ "$output" != *"HERMES_HOME"* ]]
+}

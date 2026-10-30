@@ -10,6 +10,7 @@
 set -euo pipefail
 
 DOMAIN=jarvis.lan
+BIND=10.8.0.1
 PORT_MIN=8100
 PORT_MAX=8199
 RESERVED=(hermes www dns vpn admin)
@@ -62,7 +63,7 @@ expose() {
     cp "$target" "$backup"
   fi
   tmp=$(mktemp)
-  printf 'http://%s.%s {\n\treverse_proxy 127.0.0.1:%s\n}\n' "$name" "$DOMAIN" "$port" >"$tmp"
+  printf 'http://%s.%s {\n\tbind %s\n\treverse_proxy 127.0.0.1:%s\n}\n' "$name" "$DOMAIN" "$BIND" "$port" >"$tmp"
   install -m 644 "$tmp" "$target"
   rm -f "$tmp"
   if ! validate; then
