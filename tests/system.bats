@@ -154,3 +154,15 @@ caddy_validate() {
   run bash -c "printf '%s\\n' \"\$1\" | timeout 180 docker run --rm -i --cap-add NET_ADMIN alpine:3.20 sh -c 'apk add -q nftables >/dev/null && nft -c -f -'" _ "$output"
   [ "$status" -eq 0 ] || { echo "$output"; return 1; }
 }
+
+@test "regra da porta do Chatwoot falha fechada: carrega antes das sessões e serviços, sem ExecStop" {
+  f="$REPO_ROOT/system/systemd/jarvis-chatwoot-porta.service"
+  grep -qx 'DefaultDependencies=no' "$f"
+  grep -qE '^Before=.*systemd-logind\.service' "$f"
+  grep -qE '^Before=.*systemd-user-sessions\.service' "$f"
+  grep -qE '^Before=.*hermes-gateway\.service' "$f"
+  grep -qE '^Before=.*caddy\.service' "$f"
+  ! grep -q '^ExecStop=' "$f"
+  grep -qx 'ExecReload=/usr/sbin/nft -f /etc/jarvis/chatwoot-porta.nft' "$f"
+  ! grep -q 'systemctl restart jarvis-chatwoot-porta' "$REPO_ROOT/provision/70-chatwoot.sh"
+}

@@ -43,7 +43,12 @@ install_rendered /etc/jarvis/chatwoot-porta.nft 644 root:root "$SYSTEM_DIR/nftab
 install_file "$SYSTEM_DIR/systemd/jarvis-chatwoot-porta.service" /etc/systemd/system/jarvis-chatwoot-porta.service 644 root:root
 systemctl daemon-reload
 systemctl enable jarvis-chatwoot-porta.service >/dev/null 2>&1
-systemctl restart jarvis-chatwoot-porta.service
+# reload, nunca restart: a troca da regra é atômica e a porta não fica aberta nem por um instante.
+if systemctl is-active --quiet jarvis-chatwoot-porta.service; then
+  systemctl reload jarvis-chatwoot-porta.service
+else
+  systemctl start jarvis-chatwoot-porta.service
+fi
 nft list table inet jarvis_chatwoot >/dev/null || die "regra da porta do Chatwoot não carregou"
 
 log "compose e .env"
