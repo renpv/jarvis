@@ -1,0 +1,22 @@
+# Instalado por provision/70-chatwoot.sh. Carrega a regra que fecha a porta local do Chatwoot
+# para todo usuário que não seja caddy, chatwoot ou root (system/nftables/chatwoot-porta.nft.tpl).
+# Falha FECHADA:
+#   - carrega antes do logind (que inicia as sessões com linger do chatwoot e do hermes) e dos serviços;
+#   - sem ExecStop: parar o serviço não abre a porta. Para remover de propósito:
+#     sudo nft delete table inet jarvis_chatwoot
+#   - atualizar é reload (o arquivo faz flush e recria numa transação só), nunca restart.
+[Unit]
+Description=Jarvis — porta local do Chatwoot só para o Caddy
+DefaultDependencies=no
+After=local-fs.target
+Before=systemd-logind.service systemd-user-sessions.service hermes-gateway.service hermes-dashboard.service caddy.service shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/nft -f /etc/jarvis/chatwoot-porta.nft
+ExecReload=/usr/sbin/nft -f /etc/jarvis/chatwoot-porta.nft
+
+[Install]
+WantedBy=sysinit.target

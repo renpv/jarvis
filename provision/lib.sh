@@ -111,6 +111,45 @@ as_hermes() {
   fi
 }
 
+# env_garantir ARQUIVO CHAVE VALOR — põe CHAVE=VALOR no arquivo .env se a chave faltar ou estiver
+# vazia. Nunca troca um valor já preenchido (segredos gerados uma vez, ou preenchidos pelo Renato).
+env_garantir() {
+  local f=$1 k=$2 v=$3
+  if grep -qE "^$k=.+" "$f" 2>/dev/null; then return 0; fi
+  if grep -qE "^$k=$" "$f" 2>/dev/null; then
+    sed -i "s|^$k=\$|$k=$v|" "$f"
+  else
+    printf '%s=%s\n' "$k" "$v" >>"$f"
+  fi
+}
+
+# ip_publico — o IPv4 de PUBLIC_IP, ou o de origem da rota padrão.
+ip_publico() {
+  if [[ -n $PUBLIC_IP ]]; then echo "$PUBLIC_IP"; return; fi
+  ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}'
+}
+
+# as_usuario USUÁRIO HOME CMD... — como o as_hermes, para outro usuário de serviço (ex.: chatwoot):
+# ambiente limpo, com o XDG_RUNTIME_DIR e o DOCKER_HOST do Docker rootless dele, se a sessão existir.
+as_usuario() {
+  local u=$1 home=$2 uid
+  shift 2
+  uid=$(id -u "$u")
+  local envs=(LANG=C.UTF-8 HOME="$home" PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+  if [[ -d /run/user/$uid ]]; then
+    envs+=(
+      XDG_RUNTIME_DIR="/run/user/$uid"
+      DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus"
+      DOCKER_HOST="unix:///run/user/$uid/docker.sock"
+    )
+  fi
+  if [[ $EUID -eq 0 ]]; then
+    (cd / && runuser -u "$u" -- env -i "${envs[@]}" "$@")
+  else
+    (cd / && sudo -u "$u" env -i "${envs[@]}" "$@")
+  fi
+}
+
 # ── Preflight: valida tudo ANTES de alterar a máquina ─────────────────────────
 
 _is_port() { [[ $1 =~ ^[1-9][0-9]{0,4}$ ]] && (($1 <= 65535)); }
@@ -160,6 +199,15 @@ check_vars() {
   fi
   if [[ -n $WG_ENDPOINT ]] && ! _is_ipv4 "$WG_ENDPOINT" && ! _is_dns "$WG_ENDPOINT"; then
     e+=("WG_ENDPOINT inválido: '$WG_ENDPOINT' (vazio, IPv4 ou nome DNS)")
+  fi
+  _is_user "$CHATWOOT_USER" || e+=("CHATWOOT_USER inválido: '$CHATWOOT_USER'")
+  [[ $CHATWOOT_USER != "$HERMES_USER" && $CHATWOOT_USER != "$ADMIN_USER" && $CHATWOOT_USER != root ]] ||
+    e+=("CHATWOOT_USER precisa ser um usuário só dele (não $ADMIN_USER, $HERMES_USER nem root)")
+  _is_abspath "$CHATWOOT_DIR" || e+=("CHATWOOT_DIR precisa ser caminho absoluto, sem '..' e sem espaço: '$CHATWOOT_DIR'")
+  _is_dns "$CHATWOOT_DOMAIN" || e+=("CHATWOOT_DOMAIN inválido: '$CHATWOOT_DOMAIN' (minúsculas, com pelo menos um ponto)")
+  _is_port "$CHATWOOT_PORT" || e+=("CHATWOOT_PORT inválida: '$CHATWOOT_PORT' (inteiro de 1 a 65535)")
+  if [[ -n $PUBLIC_IP ]] && ! _is_ipv4 "$PUBLIC_IP"; then
+    e+=("PUBLIC_IP inválido: '$PUBLIC_IP' (vazio ou IPv4)")
   fi
   ((${#e[@]} == 0)) && return 0
   printf '%s\n' "${e[@]}"

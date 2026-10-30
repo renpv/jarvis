@@ -1,8 +1,11 @@
 # Auditoria pós-provisionamento. Roda SÓ no job integracao (VM descartável), como o admin com sudo.
-# Portas públicas aceitas: SSH, WireGuard e os clientes DHCP (IPv4 68, IPv6 546).
+# Portas públicas aceitas: SSH, WireGuard, os clientes DHCP (IPv4 68, IPv6 546) e, só no IP
+# público e só do Caddy, 80/443 do Chatwoot (docs/specs/2026-10-30-chatwoot-design.md).
 
 setup() {
   HUID=$(id -u hermes)
+  PUB=$(ip -4 route get 1.1.1.1 | awk '{for (i = 1; i < NF; i++) if ($i == "src") print $(i + 1)}')
+  source /opt/jarvis/provision/vars.sh
 }
 
 as_hermes() {
@@ -17,10 +20,53 @@ portas_publicas() {
     awk '{n = split($2, a, ":"); print $1 "/" a[n]}' | sort -u
 }
 
-@test "só SSH, WireGuard e DHCP escutam fora do loopback e da VPN" {
+@test "só SSH, WireGuard, DHCP e 80/443 (Chatwoot) escutam fora do loopback e da VPN" {
   for p in $(portas_publicas); do
-    case $p in tcp/22 | udp/51820 | udp/68 | udp/546) ;; *) echo "porta inesperada: $p"; return 1 ;; esac
+    case $p in tcp/22 | udp/51820 | udp/68 | udp/546 | tcp/80 | tcp/443) ;; *) echo "porta inesperada: $p"; return 1 ;; esac
   done
+}
+
+@test "80/443 públicas: só no IP público e só do Caddy" {
+  run sudo ss -Htlnp '( sport = :80 or sport = :443 )'
+  [ -n "$output" ]
+  while read -r linha; do
+    end=$(awk '{print $4}' <<<"$linha")
+    [[ $end == 10.8.0.1:* || $end == "$PUB":* ]] || { echo "fora do esperado: $linha"; return 1; }
+    [[ $linha == *'"caddy"'* ]] || { echo "não é o Caddy: $linha"; return 1; }
+  done <<<"$output"
+}
+
+@test "dashboard do Hermes não abre pelo IP público" {
+  run curl -sk -o /dev/null -w '%{http_code}' --max-time 5 --resolve "hermes.jarvis.lan:443:$PUB" https://hermes.jarvis.lan/
+  [[ $output != 401 && $output != 200 ]] || { echo "respondeu $output"; return 1; }
+  run curl -s -o /dev/null -w '%{http_code}' --max-time 5 --resolve "hermes.jarvis.lan:80:$PUB" http://hermes.jarvis.lan/
+  [[ $output != 401 && $output != 200 ]] || { echo "respondeu $output"; return 1; }
+}
+
+@test "Chatwoot: http redireciona para https; criação do admin e super_admin pedem senha" {
+  run curl -s -o /dev/null -w '%{http_code}' --max-time 5 --resolve "$CHATWOOT_DOMAIN:80:$PUB" "http://$CHATWOOT_DOMAIN/"
+  [ "$output" = 308 ]
+  for c in /installation/onboarding /super_admin; do
+    run curl -sk -o /dev/null -w '%{http_code}' --max-time 5 --resolve "$CHATWOOT_DOMAIN:443:$PUB" "https://$CHATWOOT_DOMAIN$c"
+    [ "$output" = 401 ] || { echo "$c: $output"; return 1; }
+  done
+}
+
+@test "Chatwoot: o hermes não alcança a porta local (só via Caddy); portão com senha própria" {
+  sudo nft list table inet jarvis_chatwoot | grep -q "tcp dport $CHATWOOT_PORT meta skuid"
+  run as_hermes curl -s --max-time 3 "http://127.0.0.1:$CHATWOOT_PORT/"
+  [ "$status" -ne 0 ]
+  sudo grep -q '^CHATWOOT_GATE_HASH=' /etc/caddy/secrets.env
+  [ "$(sudo stat -c '%a %U' /etc/caddy/chatwoot-portao.txt)" = "600 root" ]
+}
+
+@test "Chatwoot: usuário próprio com Docker rootless; .env 600; o hermes não lê a pasta" {
+  CUID=$(id -u chatwoot)
+  sudo -u chatwoot env -i XDG_RUNTIME_DIR=/run/user/$CUID DOCKER_HOST=unix:///run/user/$CUID/docker.sock \
+    PATH=/usr/bin:/bin docker info --format '{{.SecurityOptions}}' | grep -q rootless
+  [ "$(sudo stat -c '%a %U' /var/lib/chatwoot/.env)" = "600 chatwoot" ]
+  run as_hermes ls /var/lib/chatwoot
+  [ "$status" -ne 0 ]
 }
 
 @test "firewall ativo" {

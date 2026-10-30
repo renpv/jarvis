@@ -78,6 +78,7 @@ provisionar() {
   fi
   rodar 50-docker-rootless.sh
   rodar 60-backup.sh
+  rodar 70-chatwoot.sh
 }
 
 grupo "provisionamento — 1ª vez"

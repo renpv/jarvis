@@ -13,6 +13,8 @@ SERVICE_CTL=${SERVICE_CTL:-systemctl}
 KEEP_DAILY=${KEEP_DAILY:-7}
 KEEP_WEEKLY=${KEEP_WEEKLY:-4}
 SERVICES=(hermes-gateway hermes-dashboard)
+CHATWOOT_DIR=${CHATWOOT_DIR:-/var/lib/chatwoot}
+CHATWOOT_USER=${CHATWOOT_USER:-chatwoot}
 
 today=${JARVIS_DATE:-$(date +%F)}
 kind=daily
@@ -21,6 +23,30 @@ out="$BACKUP_DIR/jarvis-$kind-$today.tar.zst"
 
 install -d -m 750 -g "$BACKUP_GROUP" "$BACKUP_DIR"
 
+# Chatwoot (se instalado): dump do banco, com o Chatwoot no ar (o pg_dump é consistente sozinho),
+# e a pasta storage (anexos). Os arquivos brutos do Postgres não entram.
+chatwoot_dump() {
+  local uid
+  uid=$(id -u "$CHATWOOT_USER")
+  (cd / && runuser -u "$CHATWOOT_USER" -- env -i LANG=C.UTF-8 HOME="$CHATWOOT_DIR" \
+    XDG_RUNTIME_DIR="/run/user/$uid" DOCKER_HOST="unix:///run/user/$uid/docker.sock" \
+    PATH=/usr/local/bin:/usr/bin:/bin \
+    docker compose --project-directory "$CHATWOOT_DIR" exec -T postgres pg_dump -U chatwoot -Fc chatwoot)
+}
+extra=()
+# A marca .ci-sem-containers só existe no CI, onde o 70-chatwoot.sh instala sem subir os containers.
+if [[ -f $CHATWOOT_DIR/compose.yaml && ! -e $CHATWOOT_DIR/.ci-sem-containers ]]; then
+  stage=$(mktemp -d)
+  trap 'rm -rf "$stage"' EXIT
+  mkdir -m 700 "$stage/chatwoot"
+  ${CHATWOOT_DUMP_CMD:-chatwoot_dump} >"$stage/chatwoot/chatwoot.dump" ||
+    { echo "jarvis-backup: dump do Chatwoot falhou; backup cancelado" >&2; exit 1; }
+  extra+=(-C "$stage" chatwoot/chatwoot.dump)
+  if [[ -d $CHATWOOT_DIR/storage ]]; then
+    extra+=(-C "$CHATWOOT_DIR" --transform 's,^storage,chatwoot/storage,' storage)
+  fi
+fi
+
 active=()
 for s in "${SERVICES[@]}"; do
   if $SERVICE_CTL is-active --quiet "$s"; then active+=("$s"); fi
@@ -28,7 +54,7 @@ done
 restart_services() {
   if ((${#active[@]})); then $SERVICE_CTL start "${active[@]}"; fi
 }
-trap restart_services EXIT
+trap 'restart_services; rm -rf "${stage:-}"' EXIT
 if ((${#active[@]})); then $SERVICE_CTL stop "${active[@]}"; fi
 
 items=()
@@ -47,7 +73,7 @@ for d in "${EXCLUDES[@]}"; do excl+=(--exclude=".hermes/$d"); done
 # rc 1 = "arquivo mudou durante a leitura" (um app rodando gravou algo): o backup segue válido.
 rc=0
 tar -C "$SRC_DIR" --anchored "${excl[@]}" --warning=no-file-changed -I 'zstd -q -T0 -10' \
-  -cf "$out.tmp" "${items[@]}" || rc=$?
+  -cf "$out.tmp" "${items[@]}" "${extra[@]}" || rc=$?
 if ((rc > 1)); then
   rm -f "$out.tmp"
   echo "jarvis-backup: tar falhou (código $rc)" >&2
@@ -59,6 +85,7 @@ chmod 640 "$out"
 
 trap - EXIT
 restart_services
+rm -rf "${stage:-}"   # o dump já está no backup; não fica cópia solta em /tmp
 
 prune() {
   local k=$1 keep=$2

@@ -298,9 +298,10 @@ sugestoes() {
       provision/40-* | system/systemd/hermes-*) quer[40-hermes]=1 ;;
       provision/50-* | system/sudoers/* | bin/jarvis-expose) quer[50-docker-rootless]=1 ;;
       provision/60-* | system/systemd/jarvis-backup* | bin/jarvis-backup) quer[60-backup]=1 ;;
+      provision/70-* | system/chatwoot/*) quer[70-chatwoot]=1 ;;
     esac
   done <<<"$1"
-  for s in 10-sistema 20-wireguard 30-dns-caddy 40-hermes 50-docker-rootless 60-backup; do
+  for s in 10-sistema 20-wireguard 30-dns-caddy 40-hermes 50-docker-rootless 60-backup 70-chatwoot; do
     if ((todos)) || [[ -n ${quer[$s]:-} ]]; then echo "  sudo provision/$s.sh"; fi
   done
   if [[ -n ${quer[apply]:-} ]]; then echo "  jarvis apply"; fi
