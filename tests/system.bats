@@ -58,9 +58,18 @@ caddy_validate() {
   local hash
   # timeout: um Docker local travado não pode prender o pre-push para sempre
   hash=$(timeout 120 docker run --rm caddy:2.10 caddy hash-password --plaintext teste)
-  timeout 120 docker run --rm -v "$SANDBOX/caddy:/etc/caddy:ro" \
+  local out rc=0
+  out=$(timeout 120 docker run --rm -v "$SANDBOX/caddy:/etc/caddy:ro" \
     -e DASHBOARD_USER=renpv -e DASHBOARD_HASH="$hash" -e CHATWOOT_GATE_USER=portao -e CHATWOOT_GATE_HASH="$hash" \
-    caddy:2.10 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+    caddy:2.10 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1) || rc=$?
+  echo "$out"
+  # Sob carga, o Docker do WSL às vezes sai com erro DEPOIS de o Caddy validar: o que se testa é
+  # a configuração, e o veredito dela é a última linha do próprio Caddy.
+  if ((rc != 0)) && [[ $(tail -1 <<<"$out") == "Valid configuration" ]]; then
+    echo "(docker saiu com $rc depois de o Caddy validar: falha do Docker, não da configuração)"
+    return 0
+  fi
+  return "$rc"
 }
 
 @test "Caddyfile é válido sem nenhum app publicado" {
