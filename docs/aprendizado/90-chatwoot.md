@@ -64,8 +64,44 @@ Todos usam a URL pública em HTTPS. As URLs de webhook seguem o padrão do Chatw
 | Instagram | `https://atendimento.renpv.com.br/webhooks/instagram` | `FB_APP_ID`, `FB_APP_SECRET`, `IG_VERIFY_TOKEN` (gerado) |
 | Chat do site | — | nenhuma: o Chatwoot gera o script do widget para colar no site |
 
-O roteiro guiado do app do Meta fica para a etapa seguinte. Os nomes das telas do Meta mudam com
-frequência, então vamos segui-lo junto, consultando a documentação do dia.
+### WhatsApp: o que aprendemos na primeira ligação (2026-10-30)
+
+Feito com o número de teste do Meta (+1 555 210 6143), pelo fluxo manual do Chatwoot: ID do número,
+ID da conta do WhatsApp Business e o token permanente de um usuário do sistema (expiração "Nunca",
+permissões `whatsapp_business_management` e `whatsapp_business_messaging`), colado direto na tela
+do Chatwoot. Nada muda no `.env`.
+
+- **Onde fica o webhook no painel novo do Meta:** o WhatsApp não está no menu da esquerda; fica em
+  Casos de uso > "Conectar-se com clientes pelo WhatsApp" > Personalizar, e o webhook em
+  Configuração de produção > Configurar webhooks. A aba Configuração da caixa no Chatwoot mostra só o
+  token de verificação; a URL é a do padrão acima. Assine apenas o campo `messages`.
+- **A conta precisa estar inscrita no app.** O Meta verificou o webhook, mas não mandava nenhum
+  `POST`: a conta do WhatsApp Business estava inscrita só no app interno do Meta, não no nosso. O
+  fluxo manual do Chatwoot não fez a inscrição. Conferir e inscrever, com o token que o Chatwoot
+  guarda, sem exibi-lo:
+
+  ```bash
+  tok=$(sudo runuser -u chatwoot -- sh -c 'cd /var/lib/chatwoot && XDG_RUNTIME_DIR=/run/user/$(id -u) docker compose exec -T postgres psql -U chatwoot -d chatwoot -Atc "select provider_config->>'"'"'api_key'"'"' from channel_whatsapp limit 1"')
+  curl -s -H "Authorization: Bearer $tok" https://graph.facebook.com/v22.0/<ID_DA_CONTA>/subscribed_apps
+  curl -s -X POST -H "Authorization: Bearer $tok" https://graph.facebook.com/v22.0/<ID_DA_CONTA>/subscribed_apps
+  ```
+
+  Refazer a conferência sempre que trocar de número ou de conta.
+- **Nono dígito:** o WhatsApp identifica contas brasileiras sem o 9 (`558587753009`), e o Chatwoot
+  responde para esse formato. Com o número de teste, cadastre o destinatário também sem o 9, ou o
+  Meta recusa com `131030 Recipient phone number not in allowed list`.
+- **Número de teste não responde para o Brasil:** depois do nono dígito, o envio parou em `130497
+  Business account is restricted from messaging users in this country`. Desde setembro de 2025 o
+  Meta restringe mensagens entre países para Brasil e Indonésia em contas novas (o número de teste é
+  dos EUA). O recebimento funcionou; o envio fica validado com um número brasileiro.
+- **Número virtual no app:** o número da BRDID foi bloqueado pelo WhatsApp Business ao conectar o
+  WhatsApp Web. Na Cloud API não há app nem QR code; um número só pode estar em um dos dois.
+
+Onde olhar quando algo falha:
+
+- chegou ou não: `docker compose logs --since 30m rails | grep 'POST "/webhooks/whatsapp'`;
+- erro de envio: `select id, status, content_attributes from messages where message_type=1 order by id desc limit 5`
+  (no `psql` do Chatwoot); o `external_error` traz o código do Meta.
 
 **SMTP:** sem SMTP não há convite de agentes nem recuperação de senha por e-mail. Preencha os
 campos `SMTP_*` e `MAILER_SENDER_EMAIL` no `.env` quando tiver uma conta de envio.
