@@ -87,7 +87,7 @@ do Chatwoot. Nada muda no `.env`.
   ```
 
   Refazer a conferência sempre que trocar de número ou de conta.
-- **Nono dígito:** o WhatsApp identifica contas brasileiras sem o 9 (`558587753009`), e o Chatwoot
+- **Nono dígito:** o WhatsApp identifica contas brasileiras sem o 9 (`55DD9XXXXYYYY` vira `55DDXXXXYYYY`), e o Chatwoot
   responde para esse formato. Com o número de teste, cadastre o destinatário também sem o 9, ou o
   Meta recusa com `131030 Recipient phone number not in allowed list`.
 - **Número de teste não responde para o Brasil:** depois do nono dígito, o envio parou em `130497
