@@ -17,7 +17,7 @@ e os apps do Jarvis continuam acessíveis só pela VPN.
 | # | Decisão | Por quê |
 |---|---|---|
 | D1 | Usuário de sistema próprio, `chatwoot`, com **Docker rootless** (como o `hermes`) | O Chatwoot guarda conversas de clientes: nem o Jarvis (`hermes`) nem um container escapado chegam a root ou aos dados um do outro. O Docker de root continua desligado. |
-| D2 | `compose.yaml` versionado em `system/chatwoot/`, imagens com **tag e digest** fixos: `chatwoot/chatwoot:v4.18.0`, `pgvector/pgvector:pg16`, `redis:7-alpine` | Reprodutível. Atualização = PR que troca a versão. |
+| D2 | `compose.yaml` versionado em `system/chatwoot/`, imagens com **tag e digest** fixos: `chatwoot/chatwoot:v4.19.1` (era v4.18.0 até 2026-11), `pgvector/pgvector:pg16`, `redis:7-alpine` | Reprodutível. Atualização = PR que troca a versão. |
 | D3 | O Rails publica só em `127.0.0.1:3000`; Postgres e Redis ficam sem porta publicada (rede interna do compose) | Com Docker, a porta publicada fura o ufw. Só o Caddy chega ao Chatwoot. |
 | D4 | Segredos em `/var/lib/chatwoot/.env` (600, do `chatwoot`): `SECRET_KEY_BASE`, `POSTGRES_PASSWORD` e `REDIS_PASSWORD` gerados pelo script; `FB_APP_ID`, `FB_APP_SECRET`, `FB_VERIFY_TOKEN`, `IG_VERIFY_TOKEN` e SMTP preenchidos pelo Renato | O mesmo padrão do `.env` do Hermes: nada secreto no Git nem no chat. |
 | D5 | `ENABLE_ACCOUNT_SIGNUP=false`, `FORCE_SSL=true`, `FRONTEND_URL=https://atendimento.renpv.com.br` | Ninguém cria conta sozinho; tudo em HTTPS. |
