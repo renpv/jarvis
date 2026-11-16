@@ -4,6 +4,9 @@ Design: [2026-10-30-chatwoot-design.md](../specs/2026-10-30-chatwoot-design.md).
 Pesquisa com as fontes: [2026-10-30-chatwoot.md](../pesquisa/2026-10-30-chatwoot.md).
 Script: `provision/70-chatwoot.sh`.
 
+Este guia cresce com o uso: cada lição nova sobre o Chatwoot ou os canais do Meta entra aqui, na
+seção do assunto.
+
 ## Como ficou
 
 ```
@@ -47,29 +50,104 @@ sudo -u chatwoot -H bash -c 'cd ~ && export XDG_RUNTIME_DIR=/run/user/$(id -u) D
 sudo -u chatwoot nano /var/lib/chatwoot/.env      # depois: sudo provision/70-chatwoot.sh
 ```
 
-**Atualizar a versão:**
-1. Num `feat/*`, troque a tag e o digest em `system/chatwoot/compose.yaml`. Use uma imagem com pelo
-   menos 14 dias e leia as notas da versão.
-2. Depois do PR, do lançamento e do deploy, rode `sudo provision/70-chatwoot.sh`. Ele roda o
-   `db:chatwoot_prepare` (migrações) antes de subir.
+Os comandos com `sudo` precisam de root na VPS. Quando um agente faz o trabalho, ele usa o
+**sudo temporário**: uma regra que se valida antes de entrar e se apaga sozinha em 2 horas. Rode
+dentro da VPS (`ssh jarvis`), não no WSL:
+
+```bash
+t=$(mktemp) && echo 'renpv ALL=(ALL) NOPASSWD: ALL' > "$t" && sudo visudo -cf "$t" && sudo install -m 0440 -o root -g root "$t" /etc/sudoers.d/90-claude-temporario && sudo systemd-run --on-active=2h --unit=remover-sudo-claude rm -f /etc/sudoers.d/90-claude-temporario; rm -f "$t"
+```
+
+Para conferir: `systemctl list-timers --all | grep remover-sudo`. Se não aparecer nada, o comando
+rodou na máquina errada. Ao terminar antes do prazo:
+`sudo systemctl stop remover-sudo-claude.timer; sudo rm -f /etc/sudoers.d/90-claude-temporario`.
+
+### Atualizar a versão
+
+A versão em uso está em `system/chatwoot/compose.yaml` e em `https://atendimento.renpv.com.br/api`
+(`"version"`).
+
+1. **Escolher a versão:** `gh api repos/chatwoot/chatwoot/releases` lista as datas. Use uma com pelo
+   menos 14 dias.
+2. **Ler o que muda:**
+   - as notas de cada versão no caminho, atrás de "breaking", "migrate" e "retired". Exemplo: a
+     v4.19.0 aposentou o Captain V1;
+   - o compose oficial nas duas tags (`docker-compose.production.yaml`);
+   - o `.env.example` (`gh api repos/chatwoot/chatwoot/compare/vA...vB`).
+
+   Uma variável nova só importa se não for opcional.
+3. **PR:** num branch `fix/*` ou `feat/*` (o pre-push recusa outros nomes), troque a tag e o digest.
+   Confira o digest com `docker buildx imagetools inspect chatwoot/chatwoot:<tag>`.
+4. **Antes de subir:** confira no banco o que as notas pedem (por exemplo,
+   `select count(*) from captain_assistants`) e faça um backup na hora:
+   `sudo systemctl start jarvis-backup`.
+5. **Subir:** lançamento e deploy (skill `lancamento`). Depois, `sudo provision/70-chatwoot.sh`, que
+   baixa a imagem, roda o `db:chatwoot_prepare` (migrações) e recria o `rails` e o `sidekiq`.
+   O atendimento fica fora do ar por cerca de 1 minuto.
+6. **Conferir:**
+   - o `/api` mostra a versão nova, com `queue_services` e `data_services` em `ok`;
+   - `docker compose ps` mostra as imagens com o digest;
+   - os logs não têm `ERROR`;
+   - uma mensagem de WhatsApp vai e volta.
+
+Histórico: v4.18.0 na instalação (2026-10-30), v4.19.1 em 2026-11-15.
 
 ## Canais
 
 Todos usam a URL pública em HTTPS. As URLs de webhook seguem o padrão do Chatwoot:
 
-| Canal | Webhook | Variáveis no `.env` |
-|---|---|---|
-| WhatsApp (Cloud API do Meta) | `https://atendimento.renpv.com.br/webhooks/whatsapp/<número>` | nenhuma: o token de verificação é por caixa de entrada, mostrado no Chatwoot |
-| Facebook Messenger | `https://atendimento.renpv.com.br/bot` | `FB_APP_ID`, `FB_APP_SECRET`, `FB_VERIFY_TOKEN` (gerado) |
-| Instagram | `https://atendimento.renpv.com.br/webhooks/instagram` | `FB_APP_ID`, `FB_APP_SECRET`, `IG_VERIFY_TOKEN` (gerado) |
-| Chat do site | — | nenhuma: o Chatwoot gera o script do widget para colar no site |
+| Canal | Estado | Webhook | Chaves |
+|---|---|---|---|
+| WhatsApp (Cloud API do Meta) | ligado | `https://atendimento.renpv.com.br/webhooks/whatsapp/<número>` | nenhuma no `.env`: o token fica na caixa de entrada, colado na tela do Chatwoot |
+| Facebook Messenger | não ligado | `https://atendimento.renpv.com.br/bot` | `FB_APP_ID`, `FB_APP_SECRET`, `FB_VERIFY_TOKEN` (gerado) |
+| Instagram | em espera: falta a conta profissional | `https://atendimento.renpv.com.br/webhooks/instagram` | `INSTAGRAM_APP_ID`, `INSTAGRAM_APP_SECRET`, `INSTAGRAM_VERIFY_TOKEN` (ver abaixo) |
+| Chat do site | não ligado | — | nenhuma: o Chatwoot gera o script do widget para colar no site |
 
-### WhatsApp: o que aprendemos na primeira ligação (2026-10-30)
+O app do Meta é um só ("Jarvis") para todos os canais. Cada canal entra nele como um caso de uso.
 
-Feito com o número de teste do Meta (+1 555 210 6143), pelo fluxo manual do Chatwoot: ID do número,
-ID da conta do WhatsApp Business e o token permanente de um usuário do sistema (expiração "Nunca",
-permissões `whatsapp_business_management` e `whatsapp_business_messaging`), colado direto na tela
-do Chatwoot. Nada muda no `.env`.
+### Messenger
+
+- As mensagens chegam numa **Página do Facebook**, não num perfil pessoal. É preciso ser
+  administrador da Página.
+- No app: caso de uso do Messenger, permissões `pages_messaging`, `pages_manage_metadata` e
+  `pages_show_list`, e webhook `/bot` com o campo `messages`.
+- Enquanto o app estiver em desenvolvimento, só quem tem função no app conversa. Para o público, o
+  Meta pede a verificação da empresa e a revisão do app.
+
+### Instagram
+
+Desde a v4.1, o Chatwoot liga o Instagram pelo **login do próprio Instagram**, sem Página do
+Facebook (código da v4.18: `Instagram::IntegrationHelper`, `config/installation_config.yml`). O
+fluxo antigo, pela Página, usava `FB_APP_ID` e `IG_VERIFY_TOKEN` e foi descontinuado.
+
+1. **Instagram:** a conta precisa ser profissional (Empresa ou Criador de conteúdo), com
+   Configurações > Mensagens e respostas > Ferramentas conectadas > "Permitir acesso às mensagens".
+2. **App do Meta:**
+   - caso de uso "Gerenciar mensagens e conteúdo no Instagram" (API do Instagram com login do Instagram).
+     Ele tem ID e chave secreta próprios, diferentes dos do app do Facebook;
+   - redirecionamento do login: `https://atendimento.renpv.com.br/instagram/callback`;
+   - webhook `/webhooks/instagram`, com o campo `messages`;
+   - em Funções, a conta do Instagram como testador (aceite o convite no Instagram). Assim o app
+     funciona para a própria conta sem a revisão do Meta.
+
+   O Chatwoot pede as permissões `instagram_business_basic` e `instagram_business_manage_messages`.
+3. **Chatwoot:** as três chaves `INSTAGRAM_*` ainda não estão no `70-chatwoot.sh`. A decisão
+   pendente é entre o Super Admin (`/super_admin`, atrás do portão do Caddy; fica no banco, que entra
+   no backup) e o `.env` por PR. Depois: Configurações > Caixas de entrada > Nova > Instagram.
+
+### WhatsApp
+
+**Como está:** a caixa "Simplifica Negócio WhatsApp" usa o número virtual da BRDID
+(+55 85 3179-1619), ligado na Cloud API desde 2026-11-06 e testado nos dois sentidos em 2026-11-15.
+A caixa "Test Number WhatsApp", do número de teste dos EUA, ficou sem uso.
+
+**Como se liga um número**, pelo fluxo manual do Chatwoot:
+- os dados vêm do painel do Meta: ID do número, ID da conta do WhatsApp Business e o token
+  permanente de um usuário do sistema (expiração "Nunca", permissões `whatsapp_business_management`
+  e `whatsapp_business_messaging`);
+- tudo é colado na tela do Chatwoot, e nada muda no `.env`.
+
+#### O que aprendemos na primeira ligação (2026-10-30, número de teste)
 
 - **Onde fica o webhook no painel novo do Meta:** o WhatsApp não está no menu da esquerda; fica em
   Casos de uso > "Conectar-se com clientes pelo WhatsApp" > Personalizar, e o webhook em
@@ -97,11 +175,48 @@ do Chatwoot. Nada muda no `.env`.
 - **Número virtual no app:** o número da BRDID foi bloqueado pelo WhatsApp Business ao conectar o
   WhatsApp Web. Na Cloud API não há app nem QR code; um número só pode estar em um dos dois.
 
-Onde olhar quando algo falha:
+#### O que aprendemos com o número real (2026-11-15)
 
-- chegou ou não: `docker compose logs --since 30m rails | grep 'POST "/webhooks/whatsapp'`;
-- erro de envio: `select id, status, content_attributes from messages where message_type=1 order by id desc limit 5`
-  (no `psql` do Chatwoot); o `external_error` traz o código do Meta.
+- **O `health_status` mostra o bloqueio exato.** Antes de suspeitar do Chatwoot, pergunte ao Meta.
+  Ele lista o que trava o número, a conta, a empresa e o app, com o código e a solução:
+
+  ```bash
+  curl -s -H "Authorization: Bearer $tok" "https://graph.facebook.com/v22.0/<ID_DO_NUMERO>?fields=health_status,status,code_verification_status,platform_type,account_mode,messaging_limit_tier"
+  ```
+
+  O que apareceu aqui, e o que cada um bloqueia:
+
+  | Código | O que é | O que bloqueia |
+  |---|---|---|
+  | `141006` | erro no método de pagamento da conta | só as mensagens de modelo, que a empresa usa para iniciar uma conversa. Responder dentro de 24h funciona. |
+  | `141010` | empresa não verificada | nada; o limite fica em 250 conversas por dia |
+  | aviso do nome exibido | nome em aprovação | nada; segura o aumento do limite |
+  | `138024`/`138025` | chamadas por SIP | nada; só vale para ligações |
+
+- **Teste de registro sem mudar nada:** uma mensagem de texto pela API para um número seu separa os
+  casos. O Claude Code barra esse envio sem o ok do Renato, porque é uma comunicação para fora.
+  - `133010 Account not registered`: falta o passo `/register` com o PIN;
+  - a API aceita e o status chega ao webhook com `131047 Re-engagement message`: o número está
+    registrado e o webhook funciona. O 131047 só diz que passou da janela de 24h;
+  - a mensagem chega: tudo certo.
+- **"Ocorreu um erro" no celular de quem escreve** não é problema do servidor quando outro celular
+  consegue. O suspeito é a conversa antiga guardada no aparelho, do tempo em que o número estava no
+  app WhatsApp Business. Apague a conversa e escreva de novo por `https://wa.me/<número>`.
+- **Número fixo virtual não tem o nono dígito.** Salve como `+55 DD XXXX-YYYY`; com o 9 na frente,
+  é outro número.
+
+#### Onde olhar quando algo falha
+
+1. **Meta:** `health_status` (acima). Ele aponta o bloqueio.
+2. **Chegou ou não:** `docker compose logs --since 30m rails | grep 'POST "/webhooks/whatsapp'`.
+   - nenhum `POST`: confira o `subscribed_apps` e a URL do webhook no app;
+   - só `GET`: o Meta verificou o endereço, mas ninguém escreveu ainda.
+3. **O que o Meta disse sobre um envio:** o status volta num `POST` do webhook. Nos logs, procure
+   `statuses`, `status` e `errors` no corpo.
+4. **Erro de envio no banco** (no `psql` do Chatwoot):
+   `select id, status, content_attributes from messages where message_type=1 order by id desc limit 5`.
+   - O `status` vale 0 para enviada, 1 para entregue, 2 para lida e 3 para falhou;
+   - o `external_error` traz o código do Meta.
 
 **SMTP:** sem SMTP não há convite de agentes nem recuperação de senha por e-mail. Preencha os
 campos `SMTP_*` e `MAILER_SENDER_EMAIL` no `.env` quando tiver uma conta de envio.
