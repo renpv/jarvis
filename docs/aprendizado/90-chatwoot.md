@@ -85,7 +85,9 @@ A versão em uso está em `system/chatwoot/compose.yaml` e em `https://atendimen
    baixa a imagem, roda o `db:chatwoot_prepare` (migrações) e recria o `rails` e o `sidekiq`.
    O atendimento fica fora do ar por cerca de 1 minuto.
 6. **Conferir:**
-   - o `/api` mostra a versão nova, com `queue_services` e `data_services` em `ok`;
+   - o `/api` mostra a versão nova, com `queue_services` e `data_services` em `ok`. Um
+     `data_services: failing` logo depois de subir pode ser só a conexão ainda não aberta: abra
+     `/app/login` e repita (ver "Onde olhar quando algo falha");
    - `docker compose ps` mostra as imagens com o digest;
    - os logs não têm `ERROR`;
    - uma mensagem de WhatsApp vai e volta.
@@ -217,6 +219,11 @@ A caixa "Test Number WhatsApp", do número de teste dos EUA, ficou sem uso.
    `select id, status, content_attributes from messages where message_type=1 order by id desc limit 5`.
    - O `status` vale 0 para enviada, 1 para entregue, 2 para lida e 3 para falhou;
    - o `external_error` traz o código do Meta.
+5. **`/api` com `data_services: failing`** (visto em 2026-11-20): o Chatwoot calcula com
+   `ActiveRecord::Base.connection.active?`, que dá falso enquanto o processo não abriu a conexão
+   (o Rails conecta só na primeira consulta). Os containers estavam de pé, o Postgres sem erro e o
+   login consultando o banco. Depois de abrir `/app/login`, o `/api` voltou a `ok`. Antes de
+   mexer, faça essa prova. Se continuar `failing`, leia `docker compose logs postgres`.
 
 **SMTP:** sem SMTP não há convite de agentes nem recuperação de senha por e-mail. Preencha os
 campos `SMTP_*` e `MAILER_SENDER_EMAIL` no `.env` quando tiver uma conta de envio.
